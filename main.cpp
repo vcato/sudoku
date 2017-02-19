@@ -341,8 +341,9 @@ namespace {
         }
       }
 
-      IndexRange<Index> rowIndices() const { return {0,size}; }
+      IndexRange<Index> rowIndices()    const { return {0,size}; }
       IndexRange<Index> columnIndices() const { return {0,size}; }
+      IndexRange<Index> regionIndices() const { return {0,size}; }
 
     private:
       vector<CellValue> cells;
@@ -443,7 +444,7 @@ static void testShowingASudokuBoard()
 }
 
 
-static Numbers boardRow(const Board &board,Index row)
+static Numbers boardRowNumbers(const Board &board,Index row)
 {
   Numbers result;
   result.reserve(board.size);
@@ -454,7 +455,7 @@ static Numbers boardRow(const Board &board,Index row)
 }
 
 
-static Numbers boardColumn(const Board &board,Index column)
+static Numbers boardColumnNumbers(const Board &board,Index column)
 {
   Numbers result;
   result.reserve(board.size);
@@ -465,7 +466,7 @@ static Numbers boardColumn(const Board &board,Index column)
 }
 
 
-static Numbers boardRegion(const Board &board,Index region)
+static Numbers boardRegionNumbers(const Board &board,Index region)
 {
   assert(region>=0 && region<9);
   assert(board.size==9);
@@ -559,7 +560,7 @@ namespace {
     bool allRowsHaveUniqueNumbers()
     {
       for (auto i : board.rowIndices()) {
-        if (!checkNumbersAreUnique(boardRow(board,i))) {
+        if (!checkNumbersAreUnique(boardRowNumbers(board,i))) {
           if (report) {
             cerr << " on row " << i+1 << "\n";
             showBoard();
@@ -573,7 +574,7 @@ namespace {
     bool allColumnsHaveUniqueNumbers()
     {
       for (auto i : board.columnIndices()) {
-        if (!checkNumbersAreUnique(boardColumn(board,i))) {
+        if (!checkNumbersAreUnique(boardColumnNumbers(board,i))) {
           if (report) {
             cerr << " on column " << i+1 << "\n";
             showBoard();
@@ -586,8 +587,8 @@ namespace {
 
     bool allRegionsHaveUniqueNumbers()
     {
-      for (auto i : irange(0,9)) {
-        if (!checkNumbersAreUnique(boardRegion(board,i))) {
+      for (auto i : board.regionIndices()) {
+        if (!checkNumbersAreUnique(boardRegionNumbers(board,i))) {
           if (report) {
             cerr << " in region " << i+1 << "\n";
             showBoard();
@@ -627,7 +628,7 @@ static bool isValid(const Board &board)
 
 
 template <typename Func>
-static void forEachCellValue(const Func &f)
+static void forEachNumber(const Func &f)
 {
   for (Number value='1'; value<='9'; ++value) {
     f(value);
@@ -637,10 +638,13 @@ static void forEachCellValue(const Func &f)
 
 static Numbers cellValuesThatWork(const Board &board,Index row,Index col)
 {
+  if (!board.cellIsEmpty(row,col)) {
+    return {board[row][col]};
+  }
   Numbers workable;
   Board test_board = board;
   assert(test_board.cellIsEmpty(row,col));
-  forEachCellValue([&](Number value){
+  forEachNumber([&](Number value){
     test_board[row][col] = value;
     if (isValid(test_board)) {
       workable.push_back(value);
@@ -722,8 +726,8 @@ namespace {
 
     bool anyEmpty() const
     {
-      for (Index row : irange(0,size)) {
-        for (Index col : irange(0,size)) {
+      for (auto row : rowIndices()) {
+        for (auto col : columnIndices()) {
           if ((*this)[row][col].empty()) {
             return true;
           }
@@ -739,7 +743,7 @@ namespace {
       assert(cell1.col==cell2.col);
       Index col = cell1.col;
 
-      for (Index row : irange(0,size)) {
+      for (auto row : irange(0,size)) {
         IndexPair cell = {row,col};
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
@@ -756,7 +760,7 @@ namespace {
       for (;;) {
         WorksGrid old_state = *this;
 
-        for (Index row : irange(0,size)) {
+        for (auto row : rowIndices()) {
           forEachPairOfCellsInRow(row,
             [&](IndexPair cell1,IndexPair cell2){
               if (isMatchingPair(cell1,cell2)) {
@@ -769,7 +773,7 @@ namespace {
           );
         }
 
-        for (Index col : irange(0,size)) {
+        for (auto col : columnIndices()) {
           forEachPairOfCellsInColumn(col,
             [&](IndexPair cell1,IndexPair cell2){
               if (isMatchingPair(cell1,cell2)) {
@@ -779,7 +783,7 @@ namespace {
           );
         }
 
-        for (int region=0; region!=size; ++region) {
+        for (auto region : regionIndices()) {
           forEachPairOfCellsInRegion(region,
             [&](IndexPair cell1,IndexPair cell2){
               if (isMatchingPair(cell1,cell2)) {
@@ -812,7 +816,7 @@ namespace {
       const Numbers &values_to_eliminate = (*this)[cell1];
       Index col = cell1.col;
 
-      for (Index row : irange(0,size)) {
+      for (auto row : rowIndices()) {
         IndexPair cell = {row,col};
         if (cell!=cell1) {
           eliminateFrom((*this)[cell],values_to_eliminate);
@@ -839,7 +843,7 @@ namespace {
       assert(cell1.row==cell2.row);
       Index row = cell1.row;
 
-      for (Index col : irange(0,size)) {
+      for (auto col : columnIndices()) {
         IndexPair cell = {row,col};
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
@@ -864,10 +868,10 @@ namespace {
     vector<Index> rowsThatWorkFor(Number v,Index col)
     {
       vector<Index> result;
-      Index n_rows = size;
 
-      for (Index row : irange(0,n_rows)) {
+      for (auto row : rowIndices()) {
         IndexPair cell = {row,col};
+
         if (contains((*this)[cell],v)) {
           result.push_back(row);
         }
@@ -879,10 +883,10 @@ namespace {
     vector<Index> colsThatWorkFor(Number v,Index row)
     {
       vector<Index> result;
-      Index n_cols = size;
 
-      for (Index col : irange(0,n_cols)) {
+      for (auto col : rowIndices()) {
         IndexPair cell = {row,col};
+
         if (contains((*this)[cell],v)) {
           result.push_back(col);
         }
@@ -895,16 +899,18 @@ namespace {
     {
       const Numbers &workable = (*this)[row][col];
       cerr << "row=" << row << ",col=" << col << ",works=";
+
       for (auto x : workable) {
         cerr << x;
       }
+
       cerr << "\n";
     }
 
     void show() const
     {
-      for (Index row : irange(0,size)) {
-        for (Index col : irange(0,size)) {
+      for (auto row : rowIndices()) {
+        for (auto col : columnIndices()) {
           showCell(row,col);
         }
       }
@@ -917,14 +923,9 @@ static WorksGrid buildWorksGrid(const Board &board)
 {
   WorksGrid works;
 
-  for (Index row : board.rowIndices()) {
-    for (Index col : board.columnIndices()) {
-      if (board.cellIsEmpty(row,col)) {
-        works[row][col] = cellValuesThatWork(board,row,col);
-      }
-      else {
-        works[row][col] = {board[row][col]};
-      }
+  for (auto row : board.rowIndices()) {
+    for (auto col : board.columnIndices()) {
+      works[row][col] = cellValuesThatWork(board,row,col);
     }
   }
 
@@ -939,8 +940,8 @@ static void
   bool has_differences = false;
 
   if (temp_works!=works) {
-    for (Index row : works.rowIndices()) {
-      for (Index col : works.columnIndices()) {
+    for (auto row : works.rowIndices()) {
+      for (auto col : works.columnIndices()) {
         const Numbers temp_values = temp_works[row][col];
         const Numbers values = works[row][col];
         if (temp_values!=values) {
@@ -1050,22 +1051,22 @@ namespace {
 
     void fillRowSingles()
     {
-      for (Index row : board.rowIndices()) {
+      for (auto row : board.rowIndices()) {
         fillSinglesInRow(row);
       }
     }
 
     void fillColumnSingles()
     {
-      for (Index col : board.columnIndices()) {
+      for (auto col : board.columnIndices()) {
         fillSinglesInColumn(col);
       }
     }
 
     void fillCellSingles()
     {
-      for (Index row : board.rowIndices()) {
-        for (Index col : board.columnIndices()) {
+      for (auto row : board.rowIndices()) {
+        for (auto col : board.columnIndices()) {
           if (board.cellIsEmpty(row,col)) {
             fillSinglesInCell(row,col);
           }
@@ -1075,7 +1076,7 @@ namespace {
 
     void fillSinglesInColumn(Index col)
     {
-      forEachCellValue([&](Number v){
+      forEachNumber([&](Number v){
         vector<Index> rows_that_work = works.rowsThatWorkFor(v,col);
         if (rows_that_work.size()==1) {
           Index row = rows_that_work[0];
@@ -1096,7 +1097,7 @@ namespace {
 
     void fillSinglesInRow(Index row)
     {
-      forEachCellValue([&](Number v){
+      forEachNumber([&](Number v){
         vector<Index> cols_that_work = works.colsThatWorkFor(v,row);
         if (cols_that_work.size()==1) {
           Index col = cols_that_work[0];
