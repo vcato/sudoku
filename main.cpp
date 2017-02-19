@@ -166,8 +166,12 @@ namespace {
 }
 
 
-template <typename T>
-static inline IndexRange<T> irange(T first,T last)
+template <
+  typename T,
+  typename U,
+  typename TU = typename std::common_type<T,U>::type
+>
+static inline IndexRange<TU> irange(T first,U last)
 {
   return {first,last};
 }
@@ -223,9 +227,9 @@ static IndexPair regionCell(Index region,Index region_cell_index)
 
 namespace {
   template <typename CellValue>
-  struct Grid {
+  class Grid {
+    public:
       enum {size = 9};
-      vector<CellValue> cells;
 
       struct CellRef {
         Grid &grid;
@@ -305,8 +309,9 @@ namespace {
       void forEachPairOfCellsInRow(Index row,const Func &func)
       {
         Index n_cols = size;
-        for (Index col1=0; col1!=n_cols; ++col1) {
-          for (Index col2=col1+1; col2!=n_cols; ++col2) {
+
+        for (Index col1 : irange(0,n_cols)) {
+          for (Index col2 : irange(col1+1,n_cols)) {
             func(IndexPair{row,col1},{row,col2});
           }
         }
@@ -316,8 +321,9 @@ namespace {
       void forEachPairOfCellsInColumn(Index col,const Func &func)
       {
         Index n_rows = size;
-        for (Index row1=0; row1!=n_rows; ++row1) {
-          for (Index row2=row1+1; row2!=n_rows; ++row2) {
+
+        for (Index row1 : irange(0,n_rows)) {
+          for (Index row2 : irange(row1+1,n_rows)) {
             func(IndexPair{row1,col},{row2,col});
           }
         }
@@ -328,8 +334,8 @@ namespace {
       {
         Index n_cells = size;
 
-        for (Index cell1=0; cell1!=n_cells; ++cell1) {
-          for (Index cell2=cell1+1; cell2!=n_cells; ++cell2) {
+        for (Index cell1 : irange(0,n_cells)) {
+          for (Index cell2 : irange(cell1+1,n_cells)) {
             func(regionCell(region,cell1),regionCell(region,cell2));
           }
         }
@@ -337,6 +343,9 @@ namespace {
 
       IndexRange<Index> rowIndices() const { return {0,size}; }
       IndexRange<Index> columnIndices() const { return {0,size}; }
+
+    private:
+      vector<CellValue> cells;
   };
 }
 
@@ -713,8 +722,8 @@ namespace {
 
     bool anyEmpty() const
     {
-      for (Index row=0; row!=size; ++row) {
-        for (Index col=0; col!=size; ++col) {
+      for (Index row : irange(0,size)) {
+        for (Index col : irange(0,size)) {
           if ((*this)[row][col].empty()) {
             return true;
           }
@@ -730,7 +739,7 @@ namespace {
       assert(cell1.col==cell2.col);
       Index col = cell1.col;
 
-      for (Index row=0; row!=size; ++row) {
+      for (Index row : irange(0,size)) {
         IndexPair cell = {row,col};
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
@@ -747,7 +756,7 @@ namespace {
       for (;;) {
         WorksGrid old_state = *this;
 
-        for (Index row=0; row!=size; ++row) {
+        for (Index row : irange(0,size)) {
           forEachPairOfCellsInRow(row,
             [&](IndexPair cell1,IndexPair cell2){
               if (isMatchingPair(cell1,cell2)) {
@@ -760,7 +769,7 @@ namespace {
           );
         }
 
-        for (Index col=0; col!=size; ++col) {
+        for (Index col : irange(0,size)) {
           forEachPairOfCellsInColumn(col,
             [&](IndexPair cell1,IndexPair cell2){
               if (isMatchingPair(cell1,cell2)) {
@@ -789,7 +798,7 @@ namespace {
       const Numbers &values_to_eliminate = (*this)[cell1];
       Index row = cell1.row;
 
-      for (Index col=0; col!=size; ++col) {
+      for (Index col : irange(0,size)) {
         IndexPair cell = {row,col};
         if (cell!=cell1) {
           Numbers old_values = (*this)[cell];
@@ -803,7 +812,7 @@ namespace {
       const Numbers &values_to_eliminate = (*this)[cell1];
       Index col = cell1.col;
 
-      for (Index row=0; row!=size; ++row) {
+      for (Index row : irange(0,size)) {
         IndexPair cell = {row,col};
         if (cell!=cell1) {
           eliminateFrom((*this)[cell],values_to_eliminate);
@@ -816,7 +825,7 @@ namespace {
       const Numbers &values_to_eliminate = (*this)[cell1];
       Index region = regionOf(cell1);
 
-      for (Index c=0; c!=size; ++c) {
+      for (Index c : irange(0,size)) {
         IndexPair cell = regionCell(region,c);
         if (cell!=cell1) {
           eliminateFrom((*this)[cell],values_to_eliminate);
@@ -830,7 +839,7 @@ namespace {
       assert(cell1.row==cell2.row);
       Index row = cell1.row;
 
-      for (Index col=0; col!=size; ++col) {
+      for (Index col : irange(0,size)) {
         IndexPair cell = {row,col};
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
@@ -844,7 +853,7 @@ namespace {
       assert(regionOf(cell1)==regionOf(cell2));
       Index region = regionOf(cell1);
 
-      for (Index rc=0; rc!=size; ++rc) {
+      for (Index rc : irange(0,size)) {
         IndexPair cell = regionCell(region,rc);
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
@@ -857,7 +866,7 @@ namespace {
       vector<Index> result;
       Index n_rows = size;
 
-      for (Index row = 0; row!=n_rows; ++row) {
+      for (Index row : irange(0,n_rows)) {
         IndexPair cell = {row,col};
         if (contains((*this)[cell],v)) {
           result.push_back(row);
@@ -872,7 +881,7 @@ namespace {
       vector<Index> result;
       Index n_cols = size;
 
-      for (Index col = 0; col!=n_cols; ++col) {
+      for (Index col : irange(0,n_cols)) {
         IndexPair cell = {row,col};
         if (contains((*this)[cell],v)) {
           result.push_back(col);
@@ -894,8 +903,8 @@ namespace {
 
     void show() const
     {
-      for (Index row=0; row!=size; ++row) {
-        for (Index col=0; col!=size; ++col) {
+      for (Index row : irange(0,size)) {
+        for (Index col : irange(0,size)) {
           showCell(row,col);
         }
       }
@@ -1418,15 +1427,15 @@ int main(int argc,char **argv)
   }
 
   const Number board_state[][10] = {
-    "8        ",
-    "     3   ",
-    "45   2 8 ",
-    "      4  ",
-    "3    412 ",
-    "    75   ",
-    " 8 1  7 3",
-    " 29 37 4 ",
-    " 7 5  29 ",
+    "19 6  8  ",
+    "8 571 36 ",
+    " 638 5 71",
+    "6 24 8 9 ",
+    " 3   2   ",
+    "         ",
+    "58    1 9",
+    "         ",
+    "  6   53 ",
   };
 
   Board board(board_state);
