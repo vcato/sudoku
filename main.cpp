@@ -138,7 +138,7 @@ namespace {
     Index begin_index;
     Index end_index;
 
-    struct iterator : 
+    struct iterator :
       std::iterator<
         std::forward_iterator_tag,
         Index
@@ -226,10 +226,14 @@ static IndexPair regionCell(Index region,Index region_cell_index)
 
 
 namespace {
+  enum { grid_size = 9 };
+}
+
+namespace {
   template <typename CellValue>
   class Grid {
     public:
-      enum {size = 9};
+      enum {size = grid_size};
 
       struct CellRef {
         Grid &grid;
@@ -401,11 +405,187 @@ static void show(const char *desc,const Board &board,ostream &stream)
 }
 
 
+using SumSpec = const char [19][20];
+
+namespace {
+  struct Area {
+    vector<IndexPair> cell_indices;
+  };
+}
+
+
+namespace {
+  static bool isValidCellValue(const IndexPair &)
+  {
+    return true;
+  }
+
+  struct IndexPairUnionFind {
+    Grid<IndexPair> parents;
+
+    IndexPairUnionFind()
+    : parents(nullIndexPair())
+    {
+    }
+
+    static IndexPair nullIndexPair()
+    {
+      return IndexPair{-1,-1};
+    }
+
+    IndexPair rootOf(const IndexPair &cell) const
+    {
+      IndexPair parent = parents.cell(cell.row,cell.col);
+
+      if (parent == nullIndexPair()) {
+        return cell;
+      }
+
+      return rootOf(parent);
+    }
+
+    void join(const IndexPair &a,const IndexPair &b)
+    {
+      IndexPair a_root = rootOf(a);
+      IndexPair b_root = rootOf(b);
+
+      if (a_root==b_root) {
+        return;
+      }
+
+      parents[a_root] = b_root;
+    }
+  };
+}
+
+
+namespace {
+struct SumSpecAnalyzer {
+  const SumSpec &sum_spec;
+  using CellIndex = IndexPair;
+  using CharIndex = IndexPair;
+
+  static bool isConnectingChar(char c)
+  {
+    return c==' ' || (c>='1' && c<='9');
+  }
+
+  static CharIndex charIndex(const IndexPair &cell_index)
+  {
+    int char_row = cell_index.row*2 + 1;
+    int char_col = cell_index.col*2 + 1;
+
+    return CharIndex{char_row,char_col};
+  }
+
+  char relativeChar(const CellIndex &cell_index,int row_offset,int col_offset) const
+  {
+    CharIndex char_index = charIndex(cell_index);
+    Index row = char_index.row + row_offset;
+    Index col = char_index.col + col_offset;
+    return sum_spec[row][col];
+  }
+
+  bool cellIsConnectedToPrevRow(const IndexPair &cell_index) const
+  {
+    return isConnectingChar(relativeChar(cell_index,-1,0));
+  }
+
+  bool cellIsConnectedToPrevCol(const IndexPair &cell_index) const
+  {
+    return isConnectingChar(relativeChar(cell_index,0,-1));
+  }
+
+  vector<Area> makeAreas() const
+  {
+    IndexPairUnionFind union_find;
+    Index n_rows = grid_size;
+    Index n_cols = grid_size;
+
+    for (Index row : irange(0,n_rows)) {
+      for (Index col : irange(0,n_cols)) {
+        IndexPair cell_index = {row,col};
+
+        if (row>0) {
+          if (cellIsConnectedToPrevRow(cell_index)) {
+            union_find.join(cell_index,IndexPair{row-1,col});
+          }
+        }
+
+        if (col>0) {
+          if (cellIsConnectedToPrevCol(cell_index)) {
+            union_find.join(cell_index,IndexPair{row,col-1});
+          }
+        }
+      }
+    }
+
+    vector<Area> areas;
+
+    for (Index root_row : irange(0,n_rows)) {
+      for (Index root_col : irange(0,n_cols)) {
+        IndexPair root = {root_row,root_col};
+
+        if (union_find.rootOf(root)==root) {
+          Area area;
+
+          for (Index member_row : irange(0,n_rows)) {
+            for (Index member_col : irange(0,n_cols)) {
+              IndexPair member = {member_row,member_col};
+
+              if (union_find.rootOf(member)==root) {
+                area.cell_indices.push_back(member);
+              }
+            }
+          }
+
+          areas.push_back(area);
+        }
+      }
+    }
+
+    return areas;
+  }
+
+  static int numericValue(char c)
+  {
+    assert(isdigit(c));
+    return c - '0';
+  }
+
+  static int numericValue(char c1,char c2)
+  {
+    return numericValue(c1)*10 + numericValue(c2);
+  }
+
+  int areaSum(const Area &area)
+  {
+    const CellIndex &first_cell = area.cell_indices[0];
+    char center = relativeChar(first_cell,0,0);
+    char right = relativeChar(first_cell,0,1);
+    char down = relativeChar(first_cell,1,0);
+
+    assert(isdigit(center));
+
+    if (isdigit(right)) {
+      return numericValue(center,right);
+    }
+
+    if (isdigit(down)) {
+      return numericValue(center,down);
+    }
+
+    return numericValue(center);
+  }
+};
+}
+
+
 static void testRowIndices()
 {
   Board board;
   auto row_indices = board.rowIndices();
-  vector<Index> 
+  vector<Index>
     indices(row_indices.begin(),row_indices.end()),
     expected_indices(board.size);
   std::iota(expected_indices.begin(),expected_indices.end(),0);
@@ -507,13 +687,42 @@ static void forEachEmptyCell(const Board &board,const Func &f)
 
 
 namespace {
+  struct SumConstraint {
+    Area area;
+    const int required_sum;
+  };
+}
+
+
+using SumConstraints = vector<SumConstraint>;
+
+
+#if 1
+static SumConstraints makeSumConstraints(const SumSpec &sum_spec)
+{
+  vector<SumConstraint> constraints;
+  SumSpecAnalyzer analyzer{sum_spec};
+  vector<Area> areas = analyzer.makeAreas();
+
+  for (auto &area : areas) {
+    int sum = analyzer.areaSum(area);
+    constraints.push_back(SumConstraint{area,sum});
+  }
+
+  return constraints;
+}
+#endif
+
+
+namespace {
   struct Checker {
     const Board &board;
     bool report;
 
-    Checker(const Board &board,bool report) 
-    : board(board),report(report) 
-    { 
+    Checker(const Board &board,bool show_violations)
+    : board(board),
+      report(show_violations)
+    {
     }
 
     void showBoard() { show("failure",board,cerr); }
@@ -554,6 +763,7 @@ namespace {
           }
         }
       }
+
       return true;
     }
 
@@ -610,6 +820,60 @@ namespace {
     {
       return checkAllCellsAreFilled() && checkUniqueness();
     }
+
+#if 0
+    template <typename Function>
+    int calculateSum(const Area &area,const Function &cell_value_function)
+    {
+      // Can we take advantage of the works grid to raise the lower bound of
+      // the result here?
+
+      int result = 0;
+
+      for (const IndexPair &cell_index : area.cell_indices) {
+        result += cell_value_function(cell_index);
+      }
+
+      return result;
+    }
+#endif
+
+#if 0
+    int minimumSum(const Area &)
+    {
+      // Can we take advantage of the works grid to raise the lower bound of
+      // the result here?
+
+      int result = 0;
+
+      forEachCellIndex(area,[](const IndexPair &cell_index){
+        result += minimumValue(cell_index);
+      });
+
+      return result;
+    }
+#endif
+
+#if 0
+    bool sumConstraintIsSatisfied(const SumConstraint &constraint)
+    {
+      int min_sum = minimumSum(constraint.area);
+      int max_sum = maximumSum(constraint.area);
+
+      return (required_sum>=min_sum && required_sum<=max_sum);
+    }
+#endif
+
+#if 0
+    bool sumConstraintsAreSatisfied(const SumConstraints &sum_constraints)
+    {
+      for (const SumConstraint &constraint : sum_constraints) {
+        if (!sumConstraintIsSatisfied(constraint)) {
+          return false;
+        }
+      }
+    }
+#endif
   };
 }
 
@@ -617,13 +881,13 @@ namespace {
 static void testNonReportingChecker()
 {
   Board board(test_board1);
-  assert(!Checker(board,/*report*/false).checkIsSolved());
+  assert(!Checker(board,/*show_violations*/false).checkIsSolved());
 }
 
 
 static bool isValid(const Board &board)
 {
-  return Checker(board,/*report*/false).checkUniqueness();
+  return Checker(board,/*show_violations*/false).checkUniqueness();
 }
 
 
@@ -641,15 +905,19 @@ static Numbers cellValuesThatWork(const Board &board,Index row,Index col)
   if (!board.cellIsEmpty(row,col)) {
     return {board[row][col]};
   }
+
   Numbers workable;
   Board test_board = board;
   assert(test_board.cellIsEmpty(row,col));
+
   forEachNumber([&](Number value){
     test_board[row][col] = value;
+
     if (isValid(test_board)) {
       workable.push_back(value);
     }
   });
+
   return workable;
 }
 
@@ -669,6 +937,14 @@ static bool isSorted(const Numbers &v)
 
 
 static bool contains(const Numbers &one_of_these,Number v)
+{
+  auto b = one_of_these.begin();
+  auto e = one_of_these.end();
+  return std::find(b,e,v)!=e;
+}
+
+
+static bool contains(const vector<IndexPair> &one_of_these,const IndexPair& v)
 {
   auto b = one_of_these.begin();
   auto e = one_of_these.end();
@@ -1187,7 +1463,7 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
   }
 
   solve(board);
-  bool solved = Checker(board,/*report*/true).checkIsSolved();
+  bool solved = Checker(board,/*show_violations*/true).checkIsSolved();
 
   if (!solved) {
     showValid(board);
@@ -1394,6 +1670,194 @@ static void testHandlingPairs()
 }
 
 
+static void testIndexPairUnionFind()
+{
+  IndexPairUnionFind union_find;
+
+  IndexPair cell1 = {0,0};
+  IndexPair cell2 = {1,0};
+  assert(union_find.rootOf(cell1)==union_find.rootOf(cell1));
+  assert(union_find.rootOf(cell1)!=union_find.rootOf(cell2));
+  union_find.join(cell1,cell2);
+  assert(union_find.rootOf(cell1)==union_find.rootOf(cell2));
+}
+
+
+static int totalCells(const vector<Area> &areas)
+{
+  int total = 0;
+
+  for (const Area &area : areas) {
+    total += area.cell_indices.size();
+  }
+
+  return total;
+}
+
+
+static bool areaContains(const Area &area,const IndexPair &cell_index)
+{
+  return contains(area.cell_indices,cell_index);
+}
+
+
+static const Area& areaContaining(const vector<Area> &areas,const IndexPair &cell_index)
+{
+  for (const Area &area : areas) {
+    if (areaContains(area,cell_index)) {
+      return area;
+    }
+  }
+
+  assert(false);
+
+  return areas[0];
+}
+
+
+static void testSumSpecAnalyzer()
+{
+  SumSpec sum_spec = {
+    "+-+-+-+-+-+-+-+-+-+",
+    "|16     |25 |2|21 |",
+    "+-+-+-+-+   +5+ + +",
+    "|25     |   | |   |",
+    "+-+-+-+-+-+ + +-+ +",
+    "|3|12 |13 | | |1| |",
+    "+ +-+-+ +-+-+ +4+-+",
+    "| |16 | |1|1| |   |",
+    "+-+-+ +-+4+1+-+-+-+",
+    "|13 | |9| | |5|15 |",
+    "+-+-+-+ + +-+ +-+-+",
+    "|14 |1| | | |   |1|",
+    "+-+ +1+-+-+ +-+-+6+",
+    "|3| | |3|11 |13 | |",
+    "+5+-+ +5+-+-+-+-+-+",
+    "|   | |   |14     |",
+    "+   + +   +-+-+-+-+",
+    "|   | |   |18     |",
+    "+-+-+-+-+-+-+-+-+-+",
+  };
+
+#if 0
+  // This demonstrates how there are 25 areas.
+  SumSpec sum_spec = {
+    "+-+-+-+-+-+-+-+-+-+",
+    "|1111111|222|3|444|",
+    "+-+-+-+-+222+3+444+",
+    "|5555555|222|3|444|",
+    "+-+-+-+-+-+2+3+-+4+",
+    "|6|777|888|2|3|9|4|",
+    "+6+-+-+8+-+-+3+9+-+",
+    "|6|000|8|1|2|3|999|",
+    "+-+-+0+-+1+2+-+-+-+",
+    "|333|0|4|1|2|5|666|",
+    "+-+-+-+4+1+-+5+-+-+",
+    "|777|8|4|1|9|555|0|",
+    "+-+7+8+-+-+9+-+-+0+",
+    "|1|7|8|2|999|333|0|",
+    "+1+-+8+2+-+-+-+-+-+",
+    "|111|8|222|4444444|",
+    "+111+8+222+-+-+-+-+",
+    "|111|8|222|5555555|",
+    "+-+-+-+-+-+-+-+-+-+",
+  };
+#endif
+
+  SumSpecAnalyzer analyzer{sum_spec};
+  assert(!analyzer.cellIsConnectedToPrevRow(IndexPair{1,0}));
+  assert( analyzer.cellIsConnectedToPrevRow(IndexPair{1,4}));
+  assert(!analyzer.cellIsConnectedToPrevCol(IndexPair{0,4}));
+  assert( analyzer.cellIsConnectedToPrevCol(IndexPair{0,1}));
+
+  {
+    vector<Area> areas = analyzer.makeAreas();
+    assert(areas.size()==25);
+    assert(totalCells(areas)==9*9);
+    assert(analyzer.areaSum(areaContaining(areas,IndexPair{0,0}))==16);
+    assert(analyzer.areaSum(areaContaining(areas,IndexPair{0,6}))==25);
+    assert(analyzer.areaSum(areaContaining(areas,IndexPair{2,0}))==3);
+  }
+}
+
+
+static void testMakeSumConstraints()
+{
+  SumSpec sum_spec = {
+    "+-+-+-+-+-+-+-+-+-+",
+    "|16     |25 |2|21 |",
+    "+-+-+-+-+   +5+ + +",
+    "|25     |   | |   |",
+    "+-+-+-+-+-+ + +-+ +",
+    "|3|12 |13 | | |1| |",
+    "+ +-+-+ +-+-+ +4+-+",
+    "| |16 | |1|1| |   |",
+    "+-+-+ +-+4+1+-+-+-+",
+    "|13 | |9| | |5|15 |",
+    "+-+-+-+ + +-+ +-+-+",
+    "|14 |1| | |1|   |1|",
+    "+-+ +1+-+-+1+-+-+6+",
+    "|3| | |3|   |13 | |",
+    "+5+-+ +5+-+-+-+-+-+",
+    "|   | |   |14     |",
+    "+   + +   +-+-+-+-+",
+    "|   | |   |18     |",
+    "+-+-+-+-+-+-+-+-+-+",
+  };
+
+  SumConstraints result = makeSumConstraints(sum_spec);
+
+  assert(result.size()==25);
+  assert(result.back().required_sum==18);
+}
+
+
+#if 0
+static void testCheckerWithSums()
+{
+  const char sum_spec[19][20] = {
+    "+-+-+-+-+-+-+-+-+-+",
+    "|16     |25 |2|21 |",
+    "+-+-+-+-+   +5+ + +",
+    "|25     |   | |   |",
+    "+-+-+-+-+-+ + +-+ +",
+    "|3|12 |13 | | |1| |",
+    "+ +-+-+ +-+-+ +4+-+",
+    "| |16 | |1|1| |   |",
+    "+-+-+ +-+4+1+-+-+-+",
+    "|13 | |9| | |5|15 |",
+    "+-+-+-+ + +-+ +-+-+",
+    "|14 |1| | | |   |1|",
+    "+-+ +1+-+-+ +-+-+6+",
+    "|3| | |3|11 |13 | |",
+    "+5+-+ +5+-+-+-+-+-+",
+    "|   | |   |14     |",
+    "+   + +   +-+-+-+-+",
+    "|   | |   |18     |",
+    "+-+-+-+-+-+-+-+-+-+",
+  };
+
+  const BoardState board_state = {
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+    "         ",
+  };
+
+  Board board(board_state);
+  SumConstraints sum_constraints = makeSumConstraints(sum_spec);
+  Checker checker(board,/*show_violations*/false);
+  bool sums_are_satisified = checker.sumConstraintsAreSatisfied(sum_constraints);
+  assert(sums_are_satisified);
+}
+#endif
+
+
 static void runTests()
 {
   testRowIndices();
@@ -1409,6 +1873,10 @@ static void runTests()
   testWorksSolver();
   testShallowSolve();
   testHandlingPairs();
+  testIndexPairUnionFind();
+  testSumSpecAnalyzer();
+  testMakeSumConstraints();
+  // testCheckerWithSums();
   testSolvingAPuzzle(test_board1,/*show*/false);
   testSolvingAPuzzle(test_board2,/*show*/false);
   testSolvingAPuzzle(test_board3,/*show*/false);
