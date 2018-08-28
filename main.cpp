@@ -14,6 +14,7 @@ using Index = int;
 using Number = char;
 using Numbers = vector<Number>;
 using BoardState = Number [9][10];
+using SumSpec = const char [19][20];
 
 
 static const BoardState test_board1 = {
@@ -117,6 +118,42 @@ static const BoardState test_board8 = {
   " 61      ",
   "3  71    ",
   "     6   ",
+};
+
+
+static const BoardState test_board_9 = {
+  "         ",
+  "     7   ",
+  "         ",
+  "       5 ",
+  "         ",
+  " 7       ",
+  "         ",
+  "   9     ",
+  "         ",
+};
+
+
+static SumSpec test_sum_spec_9 = {
+  "+-+-+-+-+-+-+-+-+-+",
+  "|16     |25 |2|21 |",
+  "+-+-+-+-+   +5+ + +",
+  "|25     |   | |   |",
+  "+-+-+-+-+-+ + +-+ +",
+  "|3|12 |13 | | |1| |",
+  "+ +-+-+ +-+-+ +4+-+",
+  "| |16 | |1|1| |   |",
+  "+-+-+ +-+4+1+-+-+-+",
+  "|13 | |9| | |5|15 |",
+  "+-+-+-+ + +-+ +-+-+",
+  "|14 |1| | |1|   |1|",
+  "+-+ +1+-+-+1+-+-+6+",
+  "|3| | |3|   |13 | |",
+  "+5+-+ +5+-+-+-+-+-+",
+  "|   | |   |14     |",
+  "+   + +   +-+-+-+-+",
+  "|   | |   |18     |",
+  "+-+-+-+-+-+-+-+-+-+",
 };
 
 
@@ -405,8 +442,6 @@ static void show(const char *desc,const Board &board,ostream &stream)
 }
 
 
-using SumSpec = const char [19][20];
-
 namespace {
   struct Area {
     vector<IndexPair> cell_indices;
@@ -456,6 +491,13 @@ namespace {
       parents[a_root] = b_root;
     }
   };
+}
+
+
+static int numericValue(char c)
+{
+  assert(isdigit(c));
+  return c - '0';
 }
 
 
@@ -547,15 +589,9 @@ struct SumSpecAnalyzer {
     return areas;
   }
 
-  static int numericValue(char c)
-  {
-    assert(isdigit(c));
-    return c - '0';
-  }
-
   static int numericValue(char c1,char c2)
   {
-    return numericValue(c1)*10 + numericValue(c2);
+    return ::numericValue(c1)*10 + ::numericValue(c2);
   }
 
   int areaSum(const Area &area)
@@ -575,7 +611,7 @@ struct SumSpecAnalyzer {
       return numericValue(center,down);
     }
 
-    return numericValue(center);
+    return ::numericValue(center);
   }
 };
 }
@@ -838,33 +874,61 @@ namespace {
     }
 #endif
 
-#if 0
-    int minimumSum(const Area &)
+    int minimumValue(const IndexPair &cell)
+    {
+      if (board.cellIsEmpty(cell.row,cell.col)) {
+        return 1;
+      }
+
+      return numericValue(board.cell(cell.row,cell.col));
+    }
+
+    int maximumValue(const IndexPair &cell)
+    {
+      if (board.cellIsEmpty(cell.row,cell.col)) {
+        return 9;
+      }
+
+      return numericValue(board.cell(cell.row,cell.col));
+    }
+
+    int minimumSum(const Area &area)
     {
       // Can we take advantage of the works grid to raise the lower bound of
       // the result here?
 
       int result = 0;
 
-      forEachCellIndex(area,[](const IndexPair &cell_index){
-        result += minimumValue(cell_index);
-      });
+      for (const IndexPair &cell : area.cell_indices) {
+        result += minimumValue(cell);
+      }
 
       return result;
     }
-#endif
 
-#if 0
+    int maximumSum(const Area &area)
+    {
+      // Can we take advantage of the works grid to raise the lower bound of
+      // the result here?
+
+      int result = 0;
+
+      for (const IndexPair &cell : area.cell_indices) {
+        result += maximumValue(cell);
+      }
+
+      return result;
+    }
+
     bool sumConstraintIsSatisfied(const SumConstraint &constraint)
     {
       int min_sum = minimumSum(constraint.area);
       int max_sum = maximumSum(constraint.area);
+      int required_sum = constraint.required_sum;
 
       return (required_sum>=min_sum && required_sum<=max_sum);
     }
-#endif
 
-#if 0
     bool sumConstraintsAreSatisfied(const SumConstraints &sum_constraints)
     {
       for (const SumConstraint &constraint : sum_constraints) {
@@ -872,8 +936,9 @@ namespace {
           return false;
         }
       }
+
+      return true;
     }
-#endif
   };
 }
 
@@ -885,9 +950,65 @@ static void testNonReportingChecker()
 }
 
 
-static bool isValid(const Board &board)
+namespace {
+struct Puzzle {
+  virtual bool boardIsValid(const Board &baord) const = 0;
+};
+}
+
+
+namespace {
+struct StandardPuzzle : Puzzle {
+  bool boardIsValid(const Board &board) const override
+  {
+    return Checker(board,/*show_violations*/false).checkUniqueness();
+  }
+};
+}
+
+
+static bool
+  boardWithSumConstraintsIsValid(
+    const Board &board,
+    const SumConstraints &sum_constraints
+  )
 {
-  return Checker(board,/*show_violations*/false).checkUniqueness();
+  Checker checker(board,/*show_violations*/false);
+
+  if (!checker.checkUniqueness()) {
+    return false;
+  }
+
+  if (!checker.sumConstraintsAreSatisfied(sum_constraints)) {
+    return false;
+  }
+
+  return true;
+}
+
+
+template <typename T>
+static T& deref(T* ptr)
+{
+  assert(ptr);
+  return *ptr;
+}
+
+
+namespace {
+struct SumPuzzle : Puzzle {
+  const SumConstraints &sum_constraints;
+
+  SumPuzzle(const SumConstraints *sum_constraints_ptr)
+  : sum_constraints(deref(sum_constraints_ptr))
+  {
+  }
+
+  bool boardIsValid(const Board &board) const override
+  {
+    return boardWithSumConstraintsIsValid(board,sum_constraints);
+  }
+};
 }
 
 
@@ -900,7 +1021,13 @@ static void forEachNumber(const Func &f)
 }
 
 
-static Numbers cellValuesThatWork(const Board &board,Index row,Index col)
+static Numbers
+  cellValuesThatWork(
+    const Board &board,
+    const Puzzle &puzzle,
+    Index row,
+    Index col
+  )
 {
   if (!board.cellIsEmpty(row,col)) {
     return {board[row][col]};
@@ -913,7 +1040,7 @@ static Numbers cellValuesThatWork(const Board &board,Index row,Index col)
   forEachNumber([&](Number value){
     test_board[row][col] = value;
 
-    if (isValid(test_board)) {
+    if (puzzle.boardIsValid(test_board)) {
       workable.push_back(value);
     }
   });
@@ -1195,13 +1322,13 @@ namespace {
 }
 
 
-static WorksGrid buildWorksGrid(const Board &board)
+static WorksGrid buildWorksGrid(const Board &board,const Puzzle &puzzle)
 {
   WorksGrid works;
 
   for (auto row : board.rowIndices()) {
     for (auto col : board.columnIndices()) {
-      works[row][col] = cellValuesThatWork(board,row,col);
+      works[row][col] = cellValuesThatWork(board,puzzle,row,col);
     }
   }
 
@@ -1244,83 +1371,19 @@ static void
 namespace {
   struct WorksSolver {
     Board &board;
+    const Puzzle &puzzle;
     WorksGrid works;
     bool debug;
 
-    WorksSolver(Board &board_arg,bool debug_arg = false)
-    : board(board_arg),
-      works(buildWorksGrid(board_arg)),
-      debug(debug_arg)
-    {
-    }
+    WorksSolver(Board &,const Puzzle *,bool debug_arg = false);
 
-    void shallowSolve()
-    {
-      for (int pass_number=1;;++pass_number) {
-        if (debug) {
-          cerr << "Pass " << pass_number << ":\n";
-        }
-        WorksGrid old_works = works;
-        for (;;) {
-          Board old_board = board;
-          fillRowSingles();
-          fillColumnSingles();
-          fillCellSingles();
-          if (board==old_board) {
-            break;
-          }
-        }
-        handlePairs();
-        if (works.check_empty) {
-          check();
-        }
-        if (works==old_works) break;
-      }
-    }
-
-    bool tryNumber(Index row,Index col,Number v)
-    {
-      Board old_board = board;
-      works.check_empty = false;
-      fill(row,col,v);
-      shallowSolve();
-      bool is_valid = !works.anyEmpty();
-      board = old_board;
-      works = buildWorksGrid(board);
-      assert(works.check_empty);
-      works.handlePairs();
-      check();
-      return is_valid;
-    }
-
-    void deepSolve()
-    {
-      shallowSolve();
-
-      forEachEmptyCell(board,[&](Index row,Index col){
-        Numbers valid_values = works[row][col];
-        removeIf(valid_values,[&](Number v){return !tryNumber(row,col,v);});
-
-        if (valid_values.size()==1) {
-          Number v = valid_values[0];
-          fill(row,col,v);
-          shallowSolve();
-        }
-      });
-    }
-
-    void showBoard()
-    {
-      show("board",board,cerr);
-    }
-
+    void shallowSolve();
+    bool tryNumber(Index row,Index col,Number v);
+    void deepSolve();
+    void showBoard() { show("board",board,cerr); }
     void handlePairs(bool debug = false) { works.handlePairs(debug); }
 
-    bool
-      isMatchingPair(
-        const IndexPair cell1,
-        const IndexPair cell2
-      ) const
+    bool isMatchingPair(const IndexPair cell1,const IndexPair cell2) const
     {
       return works.isMatchingPair(cell1,cell2);
     }
@@ -1350,68 +1413,13 @@ namespace {
       }
     }
 
-    void fillSinglesInColumn(Index col)
-    {
-      forEachNumber([&](Number v){
-        vector<Index> rows_that_work = works.rowsThatWorkFor(v,col);
-        if (rows_that_work.size()==1) {
-          Index row = rows_that_work[0];
-          IndexPair cell = {row,col};
-          if (board.cellIsEmpty(row,col)) {
-            if (debug) {
-              cerr << v << " can only be in row " << row << " of column " <<
-                col << "\n";
-            }
-            board[cell] = v;
-            works[cell] = {v};
-            works.eliminateInRow(cell);
-            works.eliminateInRegion(cell);
-          }
-        }
-      });
-    }
-
-    void fillSinglesInRow(Index row)
-    {
-      forEachNumber([&](Number v){
-        vector<Index> cols_that_work = works.colsThatWorkFor(v,row);
-        if (cols_that_work.size()==1) {
-          Index col = cols_that_work[0];
-          IndexPair cell = {row,col};
-          if (board.cellIsEmpty(row,col)) {
-            if (debug) {
-              cerr << v << " can only go in column " << col << " of row " <<
-                row << "\n";
-            }
-            board[cell] = v;
-            works[cell] = {v};
-            works.eliminateInColumn(cell);
-            works.eliminateInRegion(cell);
-          }
-        }
-      });
-    }
-
-    void fillSinglesInCell(Index row,Index col)
-    {
-      assert(board.cellIsEmpty(row,col));
-      Numbers &values_that_work = works[row][col];
-      if (values_that_work.size()==1) {
-        Number v = values_that_work[0];
-        if (debug) {
-          cerr << v << " is the only value that can go in cell " <<
-            row << "," << col << "\n";
-        }
-        board[row][col] = v;
-        works.eliminateInRow({row,col});
-        works.eliminateInColumn({row,col});
-        works.eliminateInRegion({row,col});
-      }
-    }
+    void fillSinglesInColumn(Index col);
+    void fillSinglesInRow(Index row);
+    void fillSinglesInCell(Index row,Index col);
 
     void check()
     {
-      WorksGrid temp_works = buildWorksGrid(board);
+      WorksGrid temp_works = buildWorksGrid(board,puzzle);
       temp_works.check_empty = works.check_empty;
       temp_works.handlePairs();
       compareWorksGrids(temp_works,works);
@@ -1429,25 +1437,176 @@ namespace {
 }
 
 
+WorksSolver::WorksSolver(
+  Board &board_arg,
+  const Puzzle *puzzle_ptr,
+  bool debug_arg
+)
+: board(board_arg),
+  puzzle(deref(puzzle_ptr)),
+  works(buildWorksGrid(board_arg,deref(puzzle_ptr))),
+  debug(debug_arg)
+{
+}
+
+
+void WorksSolver::shallowSolve()
+{
+  for (int pass_number=1;;++pass_number) {
+    if (debug) {
+      cerr << "Pass " << pass_number << ":\n";
+    }
+
+    WorksGrid old_works = works;
+
+    for (;;) {
+      Board old_board = board;
+      fillRowSingles();
+      fillColumnSingles();
+      fillCellSingles();
+
+      if (board==old_board) {
+        break;
+      }
+    }
+
+    handlePairs();
+
+    if (works.check_empty) {
+      check();
+    }
+
+    if (works==old_works) {
+      break;
+    }
+  }
+}
+
+
+bool WorksSolver::tryNumber(Index row,Index col,Number v)
+{
+  Board old_board = board;
+  works.check_empty = false;
+  fill(row,col,v);
+  shallowSolve();
+  bool is_valid = !works.anyEmpty();
+  board = old_board;
+  works = buildWorksGrid(board,puzzle);
+  assert(works.check_empty);
+  works.handlePairs();
+  check();
+  return is_valid;
+}
+
+
+void WorksSolver::deepSolve()
+{
+  shallowSolve();
+
+  forEachEmptyCell(board,[&](Index row,Index col){
+    Numbers valid_values = works[row][col];
+    removeIf(valid_values,[&](Number v){return !tryNumber(row,col,v);});
+
+    if (valid_values.size()==1) {
+      Number v = valid_values[0];
+      fill(row,col,v);
+      shallowSolve();
+    }
+  });
+}
+
+
+void WorksSolver::fillSinglesInColumn(Index col)
+{
+  forEachNumber([&](Number v){
+    vector<Index> rows_that_work = works.rowsThatWorkFor(v,col);
+    if (rows_that_work.size()==1) {
+      Index row = rows_that_work[0];
+      IndexPair cell = {row,col};
+      if (board.cellIsEmpty(row,col)) {
+        if (debug) {
+          cerr << v << " can only be in row " << row << " of column " <<
+            col << "\n";
+        }
+        board[cell] = v;
+        works[cell] = {v};
+        works.eliminateInRow(cell);
+        works.eliminateInRegion(cell);
+      }
+    }
+  });
+}
+
+
+void WorksSolver::fillSinglesInRow(Index row)
+{
+  forEachNumber([&](Number v){
+    vector<Index> cols_that_work = works.colsThatWorkFor(v,row);
+    if (cols_that_work.size()==1) {
+      Index col = cols_that_work[0];
+      IndexPair cell = {row,col};
+      if (board.cellIsEmpty(row,col)) {
+        if (debug) {
+          cerr << v << " can only go in column " << col << " of row " <<
+            row << "\n";
+        }
+        board[cell] = v;
+        works[cell] = {v};
+        works.eliminateInColumn(cell);
+        works.eliminateInRegion(cell);
+      }
+    }
+  });
+}
+
+
+void WorksSolver::fillSinglesInCell(Index row,Index col)
+{
+  assert(board.cellIsEmpty(row,col));
+  Numbers &values_that_work = works[row][col];
+  if (values_that_work.size()==1) {
+    Number v = values_that_work[0];
+    if (debug) {
+      cerr << v << " is the only value that can go in cell " <<
+        row << "," << col << "\n";
+    }
+    board[row][col] = v;
+    works.eliminateInRow({row,col});
+    works.eliminateInColumn({row,col});
+    works.eliminateInRegion({row,col});
+  }
+}
+
+
 static void solve(Board &board)
+{
+  StandardPuzzle puzzle;
+  WorksSolver solver(board,&puzzle);
+  solver.deepSolve();
+}
+
+
+#if 0
+static void solveWithSumConstraints(Board &board,const SumConstraints &)
 {
   WorksSolver solver(board);
   solver.deepSolve();
 }
+#endif
 
 
 static void testUniqueness()
 {
   Board board(test_board1);
   board[0][2] = '1';
-  assert(!isValid(board));
+  assert(!StandardPuzzle().boardIsValid(board));
 }
 
 
-static void showValid(const Board &board)
+static void showValid(const Board &board,const Puzzle &puzzle)
 {
   forEachEmptyCell(board,[&](Index row,Index col) {
-    Numbers workable = cellValuesThatWork(board,row,col);
+    Numbers workable = cellValuesThatWork(board,puzzle,row,col);
     cerr << "row=" << row << ",col=" << col << ",works=";
     cerr << workable << "\n";
   });
@@ -1466,7 +1625,7 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
   bool solved = Checker(board,/*show_violations*/true).checkIsSolved();
 
   if (!solved) {
-    showValid(board);
+    showValid(board,StandardPuzzle());
     assert(solved);
   }
 
@@ -1474,6 +1633,37 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
     show("solution",board,cout);
   }
 }
+
+
+#if 0
+static void
+  testSolvingAPuzzleWithSums(
+    const BoardState &test_board,
+    const SumSpec &sum_spec,
+    bool show_it
+  )
+{
+  Board board(test_board);
+  SumConstraints sum_constraints = makeSumConstraints(sum_spec);
+
+  solveWithSumConstraints(board,sum_constraints);
+
+  Checker checker(board,/*show_violations*/true);
+  bool solved = checker.checkIsSolved();
+
+  if (!solved) {
+    assert(false);
+  }
+
+  if (!checker.sumConstraintsAreSatisfied(sum_constraints)) {
+    assert(false);
+  }
+
+  if (show_it) {
+    show("solution",board,cout);
+  }
+}
+#endif
 
 
 static void testIsSorted()
@@ -1555,7 +1745,7 @@ static void testContains()
 static void testWorksGrid()
 {
   Board board = test_board4;
-  WorksGrid works_grid = buildWorksGrid(board);
+  WorksGrid works_grid = buildWorksGrid(board,StandardPuzzle());
   {
     IndexPair cell = {0,5};
     Numbers works = works_grid[cell];
@@ -1597,7 +1787,8 @@ static void testWorksGrid()
 static void testWorksSolver()
 {
   Board board = test_board4;
-  WorksSolver solver(board);
+  StandardPuzzle puzzle;
+  WorksSolver solver(board,&puzzle);
   solver.handlePairs();
   {
     IndexPair cell = {4,5};
@@ -1633,7 +1824,8 @@ static void testShallowSolve()
   };
 
   Board board = board_state;
-  WorksSolver solver(board);
+  StandardPuzzle puzzle;
+  WorksSolver solver(board,&puzzle);
   solver.shallowSolve();
   solver.check();
 }
@@ -1657,14 +1849,15 @@ static void testHandlingPairs()
   int row = 8;
   int col = 1;
   Number v = '8';
-  WorksGrid works = buildWorksGrid(board);
+  StandardPuzzle puzzle;
+  WorksGrid works = buildWorksGrid(board,puzzle);
   works.handlePairs();
   board[row][col] = v;
   works.eliminateInRow({row,col});
   works.eliminateInColumn({row,col});
   works.eliminateInRegion({row,col});
   works.handlePairs();
-  WorksGrid temp_works = buildWorksGrid(board);
+  WorksGrid temp_works = buildWorksGrid(board,puzzle);
   temp_works.handlePairs();
   assert(temp_works==works);
 }
@@ -1812,48 +2005,101 @@ static void testMakeSumConstraints()
 }
 
 
-#if 0
 static void testCheckerWithSums()
 {
-  const char sum_spec[19][20] = {
-    "+-+-+-+-+-+-+-+-+-+",
-    "|16     |25 |2|21 |",
-    "+-+-+-+-+   +5+ + +",
-    "|25     |   | |   |",
-    "+-+-+-+-+-+ + +-+ +",
-    "|3|12 |13 | | |1| |",
-    "+ +-+-+ +-+-+ +4+-+",
-    "| |16 | |1|1| |   |",
-    "+-+-+ +-+4+1+-+-+-+",
-    "|13 | |9| | |5|15 |",
-    "+-+-+-+ + +-+ +-+-+",
-    "|14 |1| | | |   |1|",
-    "+-+ +1+-+-+ +-+-+6+",
-    "|3| | |3|11 |13 | |",
-    "+5+-+ +5+-+-+-+-+-+",
-    "|   | |   |14     |",
-    "+   + +   +-+-+-+-+",
-    "|   | |   |18     |",
-    "+-+-+-+-+-+-+-+-+-+",
-  };
 
-  const BoardState board_state = {
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-    "         ",
-  };
+  {
+    const BoardState board_state = {
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+    };
 
-  Board board(board_state);
-  SumConstraints sum_constraints = makeSumConstraints(sum_spec);
-  Checker checker(board,/*show_violations*/false);
-  bool sums_are_satisified = checker.sumConstraintsAreSatisfied(sum_constraints);
-  assert(sums_are_satisified);
+    Board board(board_state);
+    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    Checker checker(board,/*show_violations*/false);
+    bool sums_are_satisified =
+      checker.sumConstraintsAreSatisfied(sum_constraints);
+    assert(sums_are_satisified);
+  }
+
+  {
+    const BoardState board_state = {
+      "         ",
+      "         ",
+      "3        ",
+      "1        ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+    };
+
+    Board board(board_state);
+    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    Checker checker(board,/*show_violations*/false);
+    bool sums_are_satisified =
+      checker.sumConstraintsAreSatisfied(sum_constraints);
+    assert(!sums_are_satisified);
+  }
+
+  {
+    const BoardState board_state = {
+      "         ",
+      "         ",
+      "1        ",
+      "1        ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+      "         ",
+    };
+
+    Board board(board_state);
+    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    Checker checker(board,/*show_violations*/false);
+    bool sums_are_satisified =
+      checker.sumConstraintsAreSatisfied(sum_constraints);
+    assert(!sums_are_satisified);
+  }
+}
+
+
+static void testCellValuesThatWorkWithSums()
+{
+  Board board(test_board_9);
+  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+
+  SumPuzzle puzzle(&sum_constraints);
+  Numbers numbers_that_work =
+    cellValuesThatWork(board,puzzle,/*row*/2,/*col*/0);
+
+  Numbers expected_numbers = {'1','2'};
+  assert(numbers_that_work == expected_numbers);
+}
+
+
+#if 0
+static void testBuildWorksGridWithSums()
+{
+  Board board(test_board_9);
+  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  auto is_valid_function = isValidWithSumsFunction(sum_constraints);
+  WorksGrid works_grid = buildWorksGrid(board,is_valid_function);
+
+  for (auto row : board.rowIndices()) {
+    for (auto col : board.columnIndices()) {
+      cerr << row << "," << col << ": " << works_grid[row][col] << "\n";
+    }
+  }
 }
 #endif
 
@@ -1876,7 +2122,10 @@ static void runTests()
   testIndexPairUnionFind();
   testSumSpecAnalyzer();
   testMakeSumConstraints();
-  // testCheckerWithSums();
+  testCheckerWithSums();
+  testCellValuesThatWorkWithSums();
+  // testBuildWorksGridWithSums();
+
   testSolvingAPuzzle(test_board1,/*show*/false);
   testSolvingAPuzzle(test_board2,/*show*/false);
   testSolvingAPuzzle(test_board3,/*show*/false);
@@ -1885,6 +2134,8 @@ static void runTests()
   testSolvingAPuzzle(test_board6,/*show*/false);
   testSolvingAPuzzle(test_board7,/*show*/false);
   testSolvingAPuzzle(test_board8,/*show*/false);
+
+  // testSolvingAPuzzleWithSums(test_board_9,test_sum_spec_9,/*show*/false);
 }
 
 
