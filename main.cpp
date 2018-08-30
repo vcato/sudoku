@@ -157,6 +157,32 @@ static SumSpec test_sum_spec_9 = {
 };
 
 
+template <typename T,typename Predicate>
+static size_t indexWhere(const vector<T> &v,const Predicate &f)
+{
+  size_t index = 0;
+
+  for (const auto &x : v) {
+    if (f(x)) {
+      return index;
+    }
+
+    ++index;
+  }
+
+  assert(false);
+
+  return 0;
+}
+
+
+template <typename T,typename Predicate>
+static const T& elementWhere(const vector<T> &v,const Predicate &f)
+{
+  return v[indexWhere(v,f)];
+}
+
+
 static bool isValidCellValue(Number c)
 {
   return (c==' ' || (c>='1' && c<='9'));
@@ -318,6 +344,11 @@ namespace {
       RowRef operator[](Index index) { return {*this,index}; }
       ConstRowRef operator[](Index index) const { return {*this,index}; }
       CellRef operator[](IndexPair cell) { return {*this,cell.row,cell.col}; }
+
+      const CellValue &operator[](IndexPair cell) const
+      {
+        return this->cell(cell.row,cell.col);
+      }
 
       size_t cellIndex(Index row,Index column) const
       {
@@ -733,7 +764,6 @@ namespace {
 using SumConstraints = vector<SumConstraint>;
 
 
-#if 1
 static SumConstraints makeSumConstraints(const SumSpec &sum_spec)
 {
   vector<SumConstraint> constraints;
@@ -747,7 +777,102 @@ static SumConstraints makeSumConstraints(const SumSpec &sum_spec)
 
   return constraints;
 }
-#endif
+
+
+template <typename CellRangeCalculator>
+static int
+  areaMinimumSum(
+    const Area &area,
+    const CellRangeCalculator &cell_range_calculator
+  )
+{
+  int result = 0;
+
+  for (const IndexPair &cell : area.cell_indices) {
+    result += cell_range_calculator.minimumValue(cell);
+  }
+
+  return result;
+}
+
+
+template <typename CellRangeCalculator>
+static int
+  areaMaximumSum(
+    const Area &area,
+    const CellRangeCalculator &cell_range_calculator
+  )
+{
+  // Can we take advantage of the works grid to raise the lower bound of
+  // the result here?
+
+  int result = 0;
+
+  for (const IndexPair &cell : area.cell_indices) {
+    result += cell_range_calculator.maximumValue(cell);
+  }
+
+  return result;
+}
+
+
+template <typename CellRangeCalculator>
+static bool
+  sumConstraintIsSatisfied(
+    const SumConstraint &constraint,
+    const CellRangeCalculator &cell_range_calculator
+  )
+{
+  int min_sum = areaMinimumSum(constraint.area,cell_range_calculator);
+  int max_sum = areaMaximumSum(constraint.area,cell_range_calculator);
+  int required_sum = constraint.required_sum;
+
+  return (required_sum>=min_sum && required_sum<=max_sum);
+}
+
+
+
+template <typename CellRangeCalculator>
+bool
+  sumConstraintsAreSatisfied(
+    const SumConstraints &sum_constraints,
+    const CellRangeCalculator &cell_range_calculator
+  )
+{
+  for (const SumConstraint &constraint : sum_constraints) {
+    if (!::sumConstraintIsSatisfied(constraint,cell_range_calculator)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+namespace {
+struct BoardCellRangeCalculator {
+  const Board &board;
+
+  int minimumValue(const IndexPair &cell) const
+  {
+    if (board.cellIsEmpty(cell.row,cell.col)) {
+      return 1;
+    }
+
+    return numericValue(board.cell(cell.row,cell.col));
+  }
+
+  int maximumValue(const IndexPair &cell) const
+  {
+    if (board.cellIsEmpty(cell.row,cell.col)) {
+      return 9;
+    }
+
+    return numericValue(board.cell(cell.row,cell.col));
+  }
+};
+}
+
 
 
 namespace {
@@ -856,90 +981,20 @@ namespace {
     {
       return checkAllCellsAreFilled() && checkUniqueness();
     }
-
-#if 0
-    template <typename Function>
-    int calculateSum(const Area &area,const Function &cell_value_function)
-    {
-      // Can we take advantage of the works grid to raise the lower bound of
-      // the result here?
-
-      int result = 0;
-
-      for (const IndexPair &cell_index : area.cell_indices) {
-        result += cell_value_function(cell_index);
-      }
-
-      return result;
-    }
-#endif
-
-    int minimumValue(const IndexPair &cell)
-    {
-      if (board.cellIsEmpty(cell.row,cell.col)) {
-        return 1;
-      }
-
-      return numericValue(board.cell(cell.row,cell.col));
-    }
-
-    int maximumValue(const IndexPair &cell)
-    {
-      if (board.cellIsEmpty(cell.row,cell.col)) {
-        return 9;
-      }
-
-      return numericValue(board.cell(cell.row,cell.col));
-    }
-
-    int minimumSum(const Area &area)
-    {
-      // Can we take advantage of the works grid to raise the lower bound of
-      // the result here?
-
-      int result = 0;
-
-      for (const IndexPair &cell : area.cell_indices) {
-        result += minimumValue(cell);
-      }
-
-      return result;
-    }
-
-    int maximumSum(const Area &area)
-    {
-      // Can we take advantage of the works grid to raise the lower bound of
-      // the result here?
-
-      int result = 0;
-
-      for (const IndexPair &cell : area.cell_indices) {
-        result += maximumValue(cell);
-      }
-
-      return result;
-    }
-
-    bool sumConstraintIsSatisfied(const SumConstraint &constraint)
-    {
-      int min_sum = minimumSum(constraint.area);
-      int max_sum = maximumSum(constraint.area);
-      int required_sum = constraint.required_sum;
-
-      return (required_sum>=min_sum && required_sum<=max_sum);
-    }
-
-    bool sumConstraintsAreSatisfied(const SumConstraints &sum_constraints)
-    {
-      for (const SumConstraint &constraint : sum_constraints) {
-        if (!sumConstraintIsSatisfied(constraint)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
   };
+}
+
+
+static bool
+  boardSumConstraintsAreSatisfied(
+    const Board &board,
+    const SumConstraints &sum_constraints
+  )
+{
+  return
+    sumConstraintsAreSatisfied(
+      sum_constraints,BoardCellRangeCalculator{board}
+    );
 }
 
 
@@ -979,7 +1034,7 @@ static bool
     return false;
   }
 
-  if (!checker.sumConstraintsAreSatisfied(sum_constraints)) {
+  if (!boardSumConstraintsAreSatisfied(board,sum_constraints)) {
     return false;
   }
 
@@ -1021,10 +1076,11 @@ static void forEachNumber(const Func &f)
 }
 
 
+template <typename BoardIsValidFunction>
 static Numbers
   cellValuesThatWork(
     const Board &board,
-    const Puzzle &puzzle,
+    const BoardIsValidFunction &board_is_valid_function,
     Index row,
     Index col
   )
@@ -1040,12 +1096,31 @@ static Numbers
   forEachNumber([&](Number value){
     test_board[row][col] = value;
 
-    if (puzzle.boardIsValid(test_board)) {
+    if (board_is_valid_function(test_board)) {
       workable.push_back(value);
     }
   });
 
   return workable;
+}
+
+
+static auto puzzleBoardIsValidFunction(const Puzzle &puzzle)
+{
+  return [&puzzle](const Board &board){ return puzzle.boardIsValid(board); };
+}
+
+
+static Numbers
+  puzzleCellValuesThatWork(
+    const Board &board,
+    const Puzzle &puzzle,
+    Index row,
+    Index col
+  )
+{
+  auto board_is_valid_function = puzzleBoardIsValidFunction(puzzle);
+  return cellValuesThatWork(board,board_is_valid_function,row,col);
 }
 
 
@@ -1240,6 +1315,15 @@ namespace {
       }
     }
 
+    void setCellNumber(Index row,Index col,Number v)
+    {
+      assert(contains(cell(row,col),v));
+      setCell(row,col,{v});
+      eliminateInRow({row,col});
+      eliminateInColumn({row,col});
+      eliminateInRegion({row,col});
+    }
+
     void eliminatePairFromRow(IndexPair cell1,IndexPair cell2)
     {
       assert(isMatchingPair(cell1,cell2));
@@ -1322,17 +1406,29 @@ namespace {
 }
 
 
-static WorksGrid buildWorksGrid(const Board &board,const Puzzle &puzzle)
+template <typename BoardIsValidFunction>
+static WorksGrid
+  makeWorksGrid(
+    const Board &board,
+    const BoardIsValidFunction &board_is_valid_function
+  )
 {
   WorksGrid works;
 
   for (auto row : board.rowIndices()) {
     for (auto col : board.columnIndices()) {
-      works[row][col] = cellValuesThatWork(board,puzzle,row,col);
+      works[row][col] =
+        cellValuesThatWork(board,board_is_valid_function,row,col);
     }
   }
 
   return works;
+}
+
+
+static WorksGrid makePuzzleWorksGrid(const Board &board,const Puzzle &puzzle)
+{
+  return makeWorksGrid(board,puzzleBoardIsValidFunction(puzzle));
 }
 
 
@@ -1419,19 +1515,16 @@ namespace {
 
     void check()
     {
-      WorksGrid temp_works = buildWorksGrid(board,puzzle);
+      WorksGrid temp_works = makePuzzleWorksGrid(board,puzzle);
       temp_works.check_empty = works.check_empty;
       temp_works.handlePairs();
       compareWorksGrids(temp_works,works);
     }
 
-    void fill(Index row,Index col,Number v)
+    void fillCell(Index row,Index col,Number v)
     {
       board[row][col] = v;
-      works[row][col] = {v};
-      works.eliminateInRow({row,col});
-      works.eliminateInColumn({row,col});
-      works.eliminateInRegion({row,col});
+      works.setCellNumber(row,col,v);
     }
   };
 }
@@ -1444,7 +1537,7 @@ WorksSolver::WorksSolver(
 )
 : board(board_arg),
   puzzle(deref(puzzle_ptr)),
-  works(buildWorksGrid(board_arg,deref(puzzle_ptr))),
+  works(makePuzzleWorksGrid(board_arg,deref(puzzle_ptr))),
   debug(debug_arg)
 {
 }
@@ -1487,11 +1580,11 @@ bool WorksSolver::tryNumber(Index row,Index col,Number v)
 {
   Board old_board = board;
   works.check_empty = false;
-  fill(row,col,v);
+  fillCell(row,col,v);
   shallowSolve();
   bool is_valid = !works.anyEmpty();
   board = old_board;
-  works = buildWorksGrid(board,puzzle);
+  works = makePuzzleWorksGrid(board,puzzle);
   assert(works.check_empty);
   works.handlePairs();
   check();
@@ -1509,7 +1602,7 @@ void WorksSolver::deepSolve()
 
     if (valid_values.size()==1) {
       Number v = valid_values[0];
-      fill(row,col,v);
+      fillCell(row,col,v);
       shallowSolve();
     }
   });
@@ -1587,9 +1680,15 @@ static void solve(Board &board)
 
 
 #if 0
-static void solveWithSumConstraints(Board &board,const SumConstraints &)
+static void
+  solveWithSumConstraints(
+    Board &board,
+    const SumConstraints &sum_constraints,
+    bool debug
+  )
 {
-  WorksSolver solver(board);
+  SumPuzzle puzzle(&sum_constraints);
+  WorksSolver solver(board,&puzzle,debug);
   solver.deepSolve();
 }
 #endif
@@ -1606,7 +1705,7 @@ static void testUniqueness()
 static void showValid(const Board &board,const Puzzle &puzzle)
 {
   forEachEmptyCell(board,[&](Index row,Index col) {
-    Numbers workable = cellValuesThatWork(board,puzzle,row,col);
+    Numbers workable = puzzleCellValuesThatWork(board,puzzle,row,col);
     cerr << "row=" << row << ",col=" << col << ",works=";
     cerr << workable << "\n";
   });
@@ -1637,7 +1736,7 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
 
 #if 0
 static void
-  testSolvingAPuzzleWithSums(
+  testSolvingASumPuzzle(
     const BoardState &test_board,
     const SumSpec &sum_spec,
     bool show_it
@@ -1646,7 +1745,7 @@ static void
   Board board(test_board);
   SumConstraints sum_constraints = makeSumConstraints(sum_spec);
 
-  solveWithSumConstraints(board,sum_constraints);
+  solveWithSumConstraints(board,sum_constraints,/*debug*/true);
 
   Checker checker(board,/*show_violations*/true);
   bool solved = checker.checkIsSolved();
@@ -1745,7 +1844,7 @@ static void testContains()
 static void testWorksGrid()
 {
   Board board = test_board4;
-  WorksGrid works_grid = buildWorksGrid(board,StandardPuzzle());
+  WorksGrid works_grid = makePuzzleWorksGrid(board,StandardPuzzle());
   {
     IndexPair cell = {0,5};
     Numbers works = works_grid[cell];
@@ -1850,14 +1949,14 @@ static void testHandlingPairs()
   int col = 1;
   Number v = '8';
   StandardPuzzle puzzle;
-  WorksGrid works = buildWorksGrid(board,puzzle);
+  WorksGrid works = makePuzzleWorksGrid(board,puzzle);
   works.handlePairs();
   board[row][col] = v;
   works.eliminateInRow({row,col});
   works.eliminateInColumn({row,col});
   works.eliminateInRegion({row,col});
   works.handlePairs();
-  WorksGrid temp_works = buildWorksGrid(board,puzzle);
+  WorksGrid temp_works = makePuzzleWorksGrid(board,puzzle);
   temp_works.handlePairs();
   assert(temp_works==works);
 }
@@ -1894,17 +1993,108 @@ static bool areaContains(const Area &area,const IndexPair &cell_index)
 }
 
 
-static const Area& areaContaining(const vector<Area> &areas,const IndexPair &cell_index)
+static SumConstraint
+  sumConstraintThatContainsCell(
+    const SumConstraints &sum_constraints,
+    const IndexPair &cell_index
+  )
 {
-  for (const Area &area : areas) {
-    if (areaContains(area,cell_index)) {
-      return area;
+  auto contains_cell_function =
+    [&](const SumConstraint &constraint){
+      return areaContains(constraint.area,cell_index);
+    };
+  return elementWhere(sum_constraints,contains_cell_function);
+}
+
+
+static IndexPair multiValuedCell(const Area &area,const WorksGrid &works)
+{
+  for (IndexPair cell : area.cell_indices) {
+    if (works[cell].size()!=1) {
+      return cell;
     }
   }
 
   assert(false);
 
-  return areas[0];
+  return {0,0};
+}
+
+
+static bool
+  sumConstraintIsSatisfiedByWorks(
+    const SumConstraint &constraint,
+    const WorksGrid &works
+  )
+{
+  // First, subtract the value of any cells that have only a single
+  // possible value.
+  int required_sum = constraint.required_sum;
+  int n_multi_valued_cells = 0;
+
+  for (IndexPair cell : constraint.area.cell_indices) {
+    if (works[cell].size()==1) {
+      required_sum -= numericValue(works[cell].front());
+    }
+    else {
+      ++n_multi_valued_cells;
+    }
+  }
+
+  if (n_multi_valued_cells==1) {
+    // If only a single cell remains, then see if one of its values
+    // matches our expected sum.
+    IndexPair cell = multiValuedCell(constraint.area,works);
+
+    for (Number n : works[cell]) {
+      if (numericValue(n)==required_sum) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  int min = 0;
+  int max = 0;
+
+  // If multiple cells remain, get the minimum and maximum values
+  // and see if our expected sum falls within that range.
+  for (IndexPair cell : constraint.area.cell_indices) {
+    if (works[cell].size()!=1) {
+      assert(isSorted(works[cell]));
+      min += numericValue(works[cell].front());
+      max += numericValue(works[cell].back());
+    }
+  }
+
+  return (required_sum>=min && required_sum<=max);
+}
+
+
+static bool
+  sumConstraintsAreSatisfiedByWorks(
+    const SumConstraints &constraints,
+    const WorksGrid &works
+  )
+{
+  for (auto &constraint : constraints) {
+    if (!sumConstraintIsSatisfiedByWorks(constraint,works)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+static const Area&
+  areaContaining(const vector<Area> &areas,const IndexPair &cell_index)
+{
+  auto contains_cell_function =
+    [&](const Area &area){ return areaContains(area,cell_index); };
+
+  return elementWhere(areas,contains_cell_function);
 }
 
 
@@ -2023,9 +2213,8 @@ static void testCheckerWithSums()
 
     Board board(board_state);
     SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-    Checker checker(board,/*show_violations*/false);
     bool sums_are_satisified =
-      checker.sumConstraintsAreSatisfied(sum_constraints);
+      boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(sums_are_satisified);
   }
 
@@ -2044,9 +2233,8 @@ static void testCheckerWithSums()
 
     Board board(board_state);
     SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-    Checker checker(board,/*show_violations*/false);
     bool sums_are_satisified =
-      checker.sumConstraintsAreSatisfied(sum_constraints);
+      boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(!sums_are_satisified);
   }
 
@@ -2065,10 +2253,50 @@ static void testCheckerWithSums()
 
     Board board(board_state);
     SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-    Checker checker(board,/*show_violations*/false);
     bool sums_are_satisified =
-      checker.sumConstraintsAreSatisfied(sum_constraints);
+      boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(!sums_are_satisified);
+  }
+}
+
+
+static void testSumConstraintIsSatisifiedByWorks()
+{
+  const Board board(test_board_9);
+  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const SumPuzzle puzzle(&sum_constraints);
+  const WorksGrid initial_works_grid = makePuzzleWorksGrid(board,puzzle);
+  {
+    const SumConstraint constraint =
+      sumConstraintThatContainsCell(sum_constraints,{5,8});
+    {
+      WorksGrid works_grid = initial_works_grid;
+      works_grid.setCellNumber(5,8,'8');
+      assert(!sumConstraintIsSatisfiedByWorks(constraint,works_grid));
+    }
+    {
+      WorksGrid works_grid = initial_works_grid;
+      assert(contains(works_grid[5][8],'9'));
+      works_grid.setCellNumber(5,8,'9');
+      assert(sumConstraintIsSatisfiedByWorks(constraint,works_grid));
+    }
+  }
+  {
+    const SumConstraint constraint =
+      sumConstraintThatContainsCell(sum_constraints,{6,8});
+    {
+      WorksGrid works_grid = initial_works_grid;
+      works_grid.setCellNumber(6,8,'8');
+      assert(!sumConstraintIsSatisfiedByWorks(constraint,works_grid));
+    }
+  }
+  {
+    const SumConstraint constraint =
+      sumConstraintThatContainsCell(sum_constraints,{2,0});
+    WorksGrid works_grid = initial_works_grid;
+    assert(contains(works_grid[2][0],'1'));
+    works_grid.setCellNumber(2,0,'1');
+    assert(sumConstraintIsSatisfiedByWorks(constraint,works_grid));
   }
 }
 
@@ -2080,28 +2308,145 @@ static void testCellValuesThatWorkWithSums()
 
   SumPuzzle puzzle(&sum_constraints);
   Numbers numbers_that_work =
-    cellValuesThatWork(board,puzzle,/*row*/2,/*col*/0);
+    puzzleCellValuesThatWork(board,puzzle,/*row*/2,/*col*/0);
 
   Numbers expected_numbers = {'1','2'};
   assert(numbers_that_work == expected_numbers);
 }
 
 
-#if 0
 static void testBuildWorksGridWithSums()
 {
   Board board(test_board_9);
   SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-  auto is_valid_function = isValidWithSumsFunction(sum_constraints);
-  WorksGrid works_grid = buildWorksGrid(board,is_valid_function);
+  SumPuzzle puzzle(&sum_constraints);
+  WorksGrid works_grid = makePuzzleWorksGrid(board,puzzle);
+  vector<char> expected_numbers = {'1','2'};
+  assert(works_grid[2][0].value()==expected_numbers);
+}
+
+
+#if 0
+static bool allCellsAreNonEmpty(const WorksGrid &works_grid)
+{
+  for (auto row : works_grid.rowIndices()) {
+    for (auto col : works_grid.columnIndices()) {
+      if (works_grid[row][col].empty()) {
+        return false;
+      }
+    }
+  }
+
+  return true;
+}
+#endif
+
+
+namespace {
+struct WorksCellRangeCalculator {
+  const WorksGrid &works;
+
+  int minimumValue(IndexPair cell) const
+  {
+    const Numbers &numbers = works[cell];
+    assert(isSorted(numbers));
+    return numericValue(numbers.front());
+  }
+
+  int maximumValue(IndexPair cell) const
+  {
+    const Numbers &numbers = works[cell];
+    assert(isSorted(numbers));
+    return numericValue(numbers.back());
+  }
+};
+}
+
+
+template <typename CellRangeCalculator>
+static void
+  verifySumConstraints(
+    const SumConstraints &sum_constraints,
+    const CellRangeCalculator &cell_range_calculator
+  )
+{
+  int constraint_index = 0;
+
+  for (auto &constraint : sum_constraints) {
+    const Area &area = constraint.area;
+    int min = areaMinimumSum(area,cell_range_calculator);
+    int max = areaMaximumSum(area,cell_range_calculator);
+    int required = constraint.required_sum;
+    cerr << "Constraint " << constraint_index << ": min=" <<
+      min << ", max=" << max << ", required=" << required << "\n";
+    assert(required>=min);
+    assert(required<=max);
+    ++constraint_index;
+  }
+}
+
+
+static WorksGrid
+  reducedWorksBySums(
+    const Board &board,
+    const WorksGrid &works,
+    const SumConstraints &sum_constraints
+  )
+{
+  WorksGrid new_works;
 
   for (auto row : board.rowIndices()) {
     for (auto col : board.columnIndices()) {
-      cerr << row << "," << col << ": " << works_grid[row][col] << "\n";
+      const Numbers &numbers = works[row][col];
+      assert(numbers.size()>=1);
+      if (numbers.size()>=2) {
+        Numbers new_numbers;
+
+        for (Number n : numbers) {
+          WorksGrid new_works = works;
+
+          new_works.setCellNumber(row,col,n);
+
+          if (!new_works.anyEmpty()) {
+            if (
+              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works)
+            ) {
+              new_numbers.push_back(n);
+            }
+          }
+        }
+        assert(!new_numbers.empty());
+        new_works[row][col] = new_numbers;
+      }
+      else {
+        new_works[row][col] = numbers;
+        assert(!new_works[row][col].value().empty());
+      }
+      assert(!new_works[row][col].value().empty());
     }
   }
+
+  return new_works;
 }
-#endif
+
+
+static void testReducedWorksBySums()
+{
+  Board board(test_board_9);
+  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  SumPuzzle puzzle(&sum_constraints);
+  WorksGrid works = makePuzzleWorksGrid(board,puzzle);
+  assert(sumConstraintsAreSatisfiedByWorks(sum_constraints,works));
+
+  WorksGrid new_works = reducedWorksBySums(board,works,sum_constraints);
+
+  const Numbers &numbers_5_8 = new_works[5][8];
+  const Numbers expected_5_8 = {'9'};
+  const Numbers &numbers_6_8 = new_works[6][8];
+  const Numbers expected_6_8 = {'7'};
+  assert(numbers_5_8==expected_5_8);
+  assert(numbers_6_8==expected_6_8);
+}
 
 
 static void runTests()
@@ -2123,8 +2468,10 @@ static void runTests()
   testSumSpecAnalyzer();
   testMakeSumConstraints();
   testCheckerWithSums();
+  testSumConstraintIsSatisifiedByWorks();
   testCellValuesThatWorkWithSums();
-  // testBuildWorksGridWithSums();
+  testBuildWorksGridWithSums();
+  testReducedWorksBySums();
 
   testSolvingAPuzzle(test_board1,/*show*/false);
   testSolvingAPuzzle(test_board2,/*show*/false);
@@ -2135,7 +2482,7 @@ static void runTests()
   testSolvingAPuzzle(test_board7,/*show*/false);
   testSolvingAPuzzle(test_board8,/*show*/false);
 
-  // testSolvingAPuzzleWithSums(test_board_9,test_sum_spec_9,/*show*/false);
+  // testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
 }
 
 
