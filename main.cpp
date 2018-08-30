@@ -1229,7 +1229,7 @@ namespace {
       }
     }
 
-    void handlePairs(bool debug = false)
+    void eliminateUsingPairs(bool debug = false)
     {
       // Find pairs of cells in the same row, column, or region that
       // only have the same two values.  Eliminate those two values
@@ -1465,6 +1465,111 @@ static void
 
 
 namespace {
+struct WorkingBoard {
+  Board &board;
+  WorksGrid &works;
+  const bool debug;
+
+  void fillCell(Index row,Index col,Number v)
+  {
+    board[row][col] = v;
+    works.setCellNumber(row,col,v);
+  }
+
+  void fillSinglesInRow(Index row)
+  {
+    forEachNumber([&](Number v){
+      vector<Index> cols_that_work = works.colsThatWorkFor(v,row);
+
+      if (cols_that_work.size()==1) {
+        Index col = cols_that_work[0];
+        IndexPair cell = {row,col};
+        if (board.cellIsEmpty(row,col)) {
+          if (debug) {
+            cerr << v << " can only go in column " << col << " of row " <<
+              row << "\n";
+          }
+          fillCell(cell.row,cell.col,v);
+        }
+      }
+    });
+  }
+
+  void fillSinglesInColumn(Index col)
+  {
+    forEachNumber([&](Number v){
+      vector<Index> rows_that_work = works.rowsThatWorkFor(v,col);
+
+      if (rows_that_work.size()==1) {
+        Index row = rows_that_work[0];
+        IndexPair cell = {row,col};
+        if (board.cellIsEmpty(row,col)) {
+          if (debug) {
+            cerr << v << " can only be in row " << row << " of column " <<
+              col << "\n";
+          }
+          board[cell] = v;
+          works[cell] = {v};
+          works.eliminateInRow(cell);
+          works.eliminateInRegion(cell);
+        }
+      }
+    });
+  }
+
+  void fillSinglesInCell(Index row,Index col)
+  {
+    assert(board.cellIsEmpty(row,col));
+    Numbers &values_that_work = works[row][col];
+    if (values_that_work.size()==1) {
+      Number v = values_that_work[0];
+      if (debug) {
+        cerr << v << " is the only value that can go in cell " <<
+          row << "," << col << "\n";
+      }
+      board[row][col] = v;
+      works.eliminateInRow({row,col});
+      works.eliminateInColumn({row,col});
+      works.eliminateInRegion({row,col});
+    }
+  }
+
+  void fillRowSingles()
+  {
+    for (auto row : board.rowIndices()) {
+      fillSinglesInRow(row);
+    }
+  }
+
+  void fillColumnSingles()
+  {
+    for (auto col : board.columnIndices()) {
+      fillSinglesInColumn(col);
+    }
+  }
+
+  void fillCellSingles()
+  {
+    for (auto row : board.rowIndices()) {
+      for (auto col : board.columnIndices()) {
+        if (board.cellIsEmpty(row,col)) {
+          fillSinglesInCell(row,col);
+        }
+      }
+    }
+  }
+
+  void fillSingles()
+  {
+    fillRowSingles();
+    fillColumnSingles();
+    fillCellSingles();
+  }
+};
+}
+
+
+namespace {
   struct WorksSolver {
     Board &board;
     const Puzzle &puzzle;
@@ -1477,54 +1582,44 @@ namespace {
     bool tryNumber(Index row,Index col,Number v);
     void deepSolve();
     void showBoard() { show("board",board,cerr); }
-    void handlePairs(bool debug = false) { works.handlePairs(debug); }
+    void handlePairs(bool debug = false) { works.eliminateUsingPairs(debug); }
 
     bool isMatchingPair(const IndexPair cell1,const IndexPair cell2) const
     {
       return works.isMatchingPair(cell1,cell2);
     }
 
+    WorkingBoard workingBoard()
+    {
+      return WorkingBoard{board,works,debug};
+    }
+
     void fillRowSingles()
     {
-      for (auto row : board.rowIndices()) {
-        fillSinglesInRow(row);
-      }
+      workingBoard().fillRowSingles();
     }
 
     void fillColumnSingles()
     {
-      for (auto col : board.columnIndices()) {
-        fillSinglesInColumn(col);
-      }
+      workingBoard().fillColumnSingles();
     }
 
     void fillCellSingles()
     {
-      for (auto row : board.rowIndices()) {
-        for (auto col : board.columnIndices()) {
-          if (board.cellIsEmpty(row,col)) {
-            fillSinglesInCell(row,col);
-          }
-        }
-      }
+      workingBoard().fillCellSingles();
     }
 
-    void fillSinglesInColumn(Index col);
-    void fillSinglesInRow(Index row);
-    void fillSinglesInCell(Index row,Index col);
+    void fillCell(Index row,Index col,Number v)
+    {
+      workingBoard().fillCell(row,col,v);
+    }
 
     void check()
     {
       WorksGrid temp_works = makePuzzleWorksGrid(board,puzzle);
       temp_works.check_empty = works.check_empty;
-      temp_works.handlePairs();
+      temp_works.eliminateUsingPairs();
       compareWorksGrids(temp_works,works);
-    }
-
-    void fillCell(Index row,Index col,Number v)
-    {
-      board[row][col] = v;
-      works.setCellNumber(row,col,v);
     }
   };
 }
@@ -1554,9 +1649,7 @@ void WorksSolver::shallowSolve()
 
     for (;;) {
       Board old_board = board;
-      fillRowSingles();
-      fillColumnSingles();
-      fillCellSingles();
+      workingBoard().fillSingles();
 
       if (board==old_board) {
         break;
@@ -1586,7 +1679,7 @@ bool WorksSolver::tryNumber(Index row,Index col,Number v)
   board = old_board;
   works = makePuzzleWorksGrid(board,puzzle);
   assert(works.check_empty);
-  works.handlePairs();
+  works.eliminateUsingPairs();
   check();
   return is_valid;
 }
@@ -1609,73 +1702,136 @@ void WorksSolver::deepSolve()
 }
 
 
-void WorksSolver::fillSinglesInColumn(Index col)
-{
-  forEachNumber([&](Number v){
-    vector<Index> rows_that_work = works.rowsThatWorkFor(v,col);
-    if (rows_that_work.size()==1) {
-      Index row = rows_that_work[0];
-      IndexPair cell = {row,col};
-      if (board.cellIsEmpty(row,col)) {
-        if (debug) {
-          cerr << v << " can only be in row " << row << " of column " <<
-            col << "\n";
-        }
-        board[cell] = v;
-        works[cell] = {v};
-        works.eliminateInRow(cell);
-        works.eliminateInRegion(cell);
-      }
-    }
-  });
-}
-
-
-void WorksSolver::fillSinglesInRow(Index row)
-{
-  forEachNumber([&](Number v){
-    vector<Index> cols_that_work = works.colsThatWorkFor(v,row);
-    if (cols_that_work.size()==1) {
-      Index col = cols_that_work[0];
-      IndexPair cell = {row,col};
-      if (board.cellIsEmpty(row,col)) {
-        if (debug) {
-          cerr << v << " can only go in column " << col << " of row " <<
-            row << "\n";
-        }
-        board[cell] = v;
-        works[cell] = {v};
-        works.eliminateInColumn(cell);
-        works.eliminateInRegion(cell);
-      }
-    }
-  });
-}
-
-
-void WorksSolver::fillSinglesInCell(Index row,Index col)
-{
-  assert(board.cellIsEmpty(row,col));
-  Numbers &values_that_work = works[row][col];
-  if (values_that_work.size()==1) {
-    Number v = values_that_work[0];
-    if (debug) {
-      cerr << v << " is the only value that can go in cell " <<
-        row << "," << col << "\n";
-    }
-    board[row][col] = v;
-    works.eliminateInRow({row,col});
-    works.eliminateInColumn({row,col});
-    works.eliminateInRegion({row,col});
-  }
-}
-
-
 static void solve(Board &board)
 {
   StandardPuzzle puzzle;
   WorksSolver solver(board,&puzzle);
   solver.deepSolve();
+}
+
+
+static IndexPair multiValuedCell(const Area &area,const WorksGrid &works)
+{
+  for (IndexPair cell : area.cell_indices) {
+    if (works[cell].size()!=1) {
+      return cell;
+    }
+  }
+
+  assert(false);
+
+  return {0,0};
+}
+
+
+static bool
+  sumConstraintIsSatisfiedByWorks(
+    const SumConstraint &constraint,
+    const WorksGrid &works
+  )
+{
+  // First, subtract the value of any cells that have only a single
+  // possible value.
+  int required_sum = constraint.required_sum;
+  int n_multi_valued_cells = 0;
+
+  for (IndexPair cell : constraint.area.cell_indices) {
+    if (works[cell].size()==1) {
+      required_sum -= numericValue(works[cell].front());
+    }
+    else {
+      ++n_multi_valued_cells;
+    }
+  }
+
+  if (n_multi_valued_cells==1) {
+    // If only a single cell remains, then see if one of its values
+    // matches our expected sum.
+    IndexPair cell = multiValuedCell(constraint.area,works);
+
+    for (Number n : works[cell]) {
+      if (numericValue(n)==required_sum) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  int min = 0;
+  int max = 0;
+
+  // If multiple cells remain, get the minimum and maximum values
+  // and see if our expected sum falls within that range.
+  for (IndexPair cell : constraint.area.cell_indices) {
+    if (works[cell].size()!=1) {
+      assert(isSorted(works[cell]));
+      min += numericValue(works[cell].front());
+      max += numericValue(works[cell].back());
+    }
+  }
+
+  return (required_sum>=min && required_sum<=max);
+}
+
+
+static bool
+  sumConstraintsAreSatisfiedByWorks(
+    const SumConstraints &constraints,
+    const WorksGrid &works
+  )
+{
+  for (auto &constraint : constraints) {
+    if (!sumConstraintIsSatisfiedByWorks(constraint,works)) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+
+static WorksGrid
+  reducedWorksBySums(
+    const Board &board,
+    const WorksGrid &works,
+    const SumConstraints &sum_constraints
+  )
+{
+  WorksGrid new_works;
+
+  for (auto row : board.rowIndices()) {
+    for (auto col : board.columnIndices()) {
+      const Numbers &numbers = works[row][col];
+      assert(numbers.size()>=1);
+      if (numbers.size()>=2) {
+        Numbers new_numbers;
+
+        for (Number n : numbers) {
+          WorksGrid new_works = works;
+
+          new_works.setCellNumber(row,col,n);
+
+          if (!new_works.anyEmpty()) {
+            if (
+              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works)
+            ) {
+              new_numbers.push_back(n);
+            }
+          }
+        }
+        assert(!new_numbers.empty());
+        new_works[row][col] = new_numbers;
+      }
+      else {
+        new_works[row][col] = numbers;
+        assert(!new_works[row][col].value().empty());
+      }
+      assert(!new_works[row][col].value().empty());
+    }
+  }
+
+  return new_works;
 }
 
 
@@ -1688,8 +1844,17 @@ static void
   )
 {
   SumPuzzle puzzle(&sum_constraints);
-  WorksSolver solver(board,&puzzle,debug);
-  solver.deepSolve();
+  WorksGrid works = makePuzzleWorksGrid(board,puzzle);
+  works = reducedWorksBySums(board,works,sum_constraints);
+  WorkingBoard working_board{board,works,debug};
+  working_board.fillSingles();
+  works = reducedWorksBySums(board,works,sum_constraints);
+  working_board.fillSingles();
+  works = reducedWorksBySums(board,works,sum_constraints);
+  working_board.fillSingles();
+
+  show("board",board,cerr);
+  works.show();
 }
 #endif
 
@@ -1739,7 +1904,7 @@ static void
   testSolvingASumPuzzle(
     const BoardState &test_board,
     const SumSpec &sum_spec,
-    bool show_it
+    bool /*show_it*/
   )
 {
   Board board(test_board);
@@ -1747,6 +1912,7 @@ static void
 
   solveWithSumConstraints(board,sum_constraints,/*debug*/true);
 
+#if 0
   Checker checker(board,/*show_violations*/true);
   bool solved = checker.checkIsSolved();
 
@@ -1761,6 +1927,7 @@ static void
   if (show_it) {
     show("solution",board,cout);
   }
+#endif
 }
 #endif
 
@@ -1950,14 +2117,14 @@ static void testHandlingPairs()
   Number v = '8';
   StandardPuzzle puzzle;
   WorksGrid works = makePuzzleWorksGrid(board,puzzle);
-  works.handlePairs();
+  works.eliminateUsingPairs();
   board[row][col] = v;
   works.eliminateInRow({row,col});
   works.eliminateInColumn({row,col});
   works.eliminateInRegion({row,col});
-  works.handlePairs();
+  works.eliminateUsingPairs();
   WorksGrid temp_works = makePuzzleWorksGrid(board,puzzle);
-  temp_works.handlePairs();
+  temp_works.eliminateUsingPairs();
   assert(temp_works==works);
 }
 
@@ -2004,87 +2171,6 @@ static SumConstraint
       return areaContains(constraint.area,cell_index);
     };
   return elementWhere(sum_constraints,contains_cell_function);
-}
-
-
-static IndexPair multiValuedCell(const Area &area,const WorksGrid &works)
-{
-  for (IndexPair cell : area.cell_indices) {
-    if (works[cell].size()!=1) {
-      return cell;
-    }
-  }
-
-  assert(false);
-
-  return {0,0};
-}
-
-
-static bool
-  sumConstraintIsSatisfiedByWorks(
-    const SumConstraint &constraint,
-    const WorksGrid &works
-  )
-{
-  // First, subtract the value of any cells that have only a single
-  // possible value.
-  int required_sum = constraint.required_sum;
-  int n_multi_valued_cells = 0;
-
-  for (IndexPair cell : constraint.area.cell_indices) {
-    if (works[cell].size()==1) {
-      required_sum -= numericValue(works[cell].front());
-    }
-    else {
-      ++n_multi_valued_cells;
-    }
-  }
-
-  if (n_multi_valued_cells==1) {
-    // If only a single cell remains, then see if one of its values
-    // matches our expected sum.
-    IndexPair cell = multiValuedCell(constraint.area,works);
-
-    for (Number n : works[cell]) {
-      if (numericValue(n)==required_sum) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  int min = 0;
-  int max = 0;
-
-  // If multiple cells remain, get the minimum and maximum values
-  // and see if our expected sum falls within that range.
-  for (IndexPair cell : constraint.area.cell_indices) {
-    if (works[cell].size()!=1) {
-      assert(isSorted(works[cell]));
-      min += numericValue(works[cell].front());
-      max += numericValue(works[cell].back());
-    }
-  }
-
-  return (required_sum>=min && required_sum<=max);
-}
-
-
-static bool
-  sumConstraintsAreSatisfiedByWorks(
-    const SumConstraints &constraints,
-    const WorksGrid &works
-  )
-{
-  for (auto &constraint : constraints) {
-    if (!sumConstraintIsSatisfiedByWorks(constraint,works)) {
-      return false;
-    }
-  }
-
-  return true;
 }
 
 
@@ -2383,50 +2469,6 @@ static void
     assert(required<=max);
     ++constraint_index;
   }
-}
-
-
-static WorksGrid
-  reducedWorksBySums(
-    const Board &board,
-    const WorksGrid &works,
-    const SumConstraints &sum_constraints
-  )
-{
-  WorksGrid new_works;
-
-  for (auto row : board.rowIndices()) {
-    for (auto col : board.columnIndices()) {
-      const Numbers &numbers = works[row][col];
-      assert(numbers.size()>=1);
-      if (numbers.size()>=2) {
-        Numbers new_numbers;
-
-        for (Number n : numbers) {
-          WorksGrid new_works = works;
-
-          new_works.setCellNumber(row,col,n);
-
-          if (!new_works.anyEmpty()) {
-            if (
-              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works)
-            ) {
-              new_numbers.push_back(n);
-            }
-          }
-        }
-        assert(!new_numbers.empty());
-        new_works[row][col] = new_numbers;
-      }
-      else {
-        new_works[row][col] = numbers;
-        assert(!new_works[row][col].value().empty());
-      }
-      assert(!new_works[row][col].value().empty());
-    }
-  }
-
-  return new_works;
 }
 
 
