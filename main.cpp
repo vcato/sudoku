@@ -1895,6 +1895,63 @@ static bool
 }
 
 
+static bool areaContains(const Area &area,const IndexPair &cell_index)
+{
+  return contains(area.cell_indices,cell_index);
+}
+
+
+static SumConstraint
+  sumConstraintContainingCell(
+    const SumConstraints &sum_constraints,
+    const IndexPair &cell_index
+  )
+{
+  auto contains_cell_function =
+    [&](const SumConstraint &constraint){
+      return areaContains(constraint.area,cell_index);
+    };
+  return elementWhere(sum_constraints,contains_cell_function);
+}
+
+
+#if 0
+static bool allCellsInAreaAreInTheSameRegion(const Area &/*area*/)
+{
+  for (const IndexPair &cell : area.cell_indices) {
+    assert(false);
+  }
+
+  assert(false);
+}
+#endif
+
+
+#if 0
+static bool cellNumbersMustBeDistinctInArea(const Area &area)
+{
+  if (allCellsInAreaAreInTheSameRegion(area)) {
+    assert(false);
+  }
+
+  assert(false);
+}
+#endif
+
+
+#if 0
+static Numbers possibleNumbersInSumConstraint(const SumConstraint &constraint)
+{
+  if (cellNumbersMustBeDistinctInArea(constraint.area)) {
+    assert(false);
+  }
+  else {
+    assert(false);
+  }
+}
+#endif
+
+
 static WorksGrid
   reducedWorksBySums(
     const Board &board,
@@ -1907,11 +1964,19 @@ static WorksGrid
   for (auto row : board.rowIndices()) {
     for (auto col : board.columnIndices()) {
       const Numbers &numbers = works[row][col];
+      const SumConstraint &sum_constraint =
+        sumConstraintContainingCell(sum_constraints,{row,col});
       assert(numbers.size()>=1);
+#if 0
+      Numbers possible_numbers =
+        possibleNumbersInSumConstraint(sum_constraint);
+#endif
+
       if (numbers.size()>=2) {
         Numbers new_numbers;
 
         for (Number n : numbers) {
+#if 1
           WorksGrid new_works = works;
 
           new_works.setCellNumber(row,col,n);
@@ -1933,13 +1998,26 @@ static WorksGrid
           if (is_valid) {
             new_numbers.push_back(n);
           }
+#else
+          if (contains(possible_numbers,n)) {
+            WorksGrid new_works = works;
+
+            new_works.setCellNumber(row,col,n);
+
+            if (!new_works.anyEmpty()) {
+              if (sumConstraintIsSatisfiedByWorks(sum_constraint,new_works)) {
+                new_numbers.push_back(n);
+              }
+            }
+          }
+#endif
         }
         assert(!new_numbers.empty());
         new_works[row][col] = new_numbers;
       }
       else {
+        assert(numbers.size()==1);
         new_works[row][col] = numbers;
-        assert(!new_works[row][col].value().empty());
       }
       assert(!new_works[row][col].value().empty());
     }
@@ -2298,26 +2376,6 @@ static int totalCells(const vector<Area> &areas)
 }
 
 
-static bool areaContains(const Area &area,const IndexPair &cell_index)
-{
-  return contains(area.cell_indices,cell_index);
-}
-
-
-static SumConstraint
-  sumConstraintThatContainsCell(
-    const SumConstraints &sum_constraints,
-    const IndexPair &cell_index
-  )
-{
-  auto contains_cell_function =
-    [&](const SumConstraint &constraint){
-      return areaContains(constraint.area,cell_index);
-    };
-  return elementWhere(sum_constraints,contains_cell_function);
-}
-
-
 static const Area&
   areaContaining(const vector<Area> &areas,const IndexPair &cell_index)
 {
@@ -2490,6 +2548,29 @@ static void testCheckerWithSums()
 }
 
 
+#if 0
+static void testCellNumbersMustBeDistinctInArea()
+{
+  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const SumConstraint &constraint =
+    sumConstraintContainingCell(sum_constraints,{6,0});
+  bool result = cellNumbersMustBeDistinctInArea(constraint.area);
+  assert(result==true);
+}
+#endif
+
+
+#if 0
+static void testPossibleNumbersInSumConstraint()
+{
+  const Board board(test_board_9);
+  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const SumConstraint &sum_constraint = sumConstraintsAreSatisfied
+  Numbers numbers = possibleNumbersInSumConstraint(sum_constraints);
+}
+#endif
+
+
 static void testSumConstraintIsSatisifiedByWorks()
 {
   const Board board(test_board_9);
@@ -2504,7 +2585,7 @@ static void testSumConstraintIsSatisifiedByWorks()
     bool isSatisfied(Index row,Index col,Number number) const
     {
       const SumConstraint constraint =
-        sumConstraintThatContainsCell(sum_constraints,{row,col});
+        sumConstraintContainingCell(sum_constraints,{row,col});
       WorksGrid works_grid = initial_works_grid;
       assert(contains(works_grid[row][col],number));
       works_grid.setCellNumber(row,col,number);
@@ -2519,6 +2600,7 @@ static void testSumConstraintIsSatisifiedByWorks()
   assert(!tester.isSatisfied(/*row*/5,/*col*/8,/*number*/'8'));
   assert( tester.isSatisfied(/*row*/2,/*col*/0,/*number*/'1'));
   assert(!tester.isSatisfied(/*row*/5,/*col*/6,/*number*/'4'));
+  assert( tester.isSatisfied(/*row*/2,/*col*/0,/*number*/'1'));
 }
 
 
@@ -2645,6 +2727,8 @@ static void runTests()
   testSumSpecAnalyzer();
   testMakeSumConstraints();
   testCheckerWithSums();
+  // testCellNumbersMustBeDistinctInArea();
+  // testPossibleNumbersInSumConstraint();
   testSumConstraintIsSatisifiedByWorks();
   testCellValuesThatWorkWithSums();
   testBuildWorksGridWithSums();
