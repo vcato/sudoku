@@ -145,7 +145,7 @@ static SumSpec test_sum_spec_9 = {
   "+ +-+-+ +-+-+ +4+-+",
   "| |16 | |1|1| |   |",
   "+-+-+ +-+4+1+-+-+-+",
-  "|13 | |9| | |5|15 |",
+  "|13 | |9| | |6|15 |",
   "+-+-+-+ + +-+ +-+-+",
   "|14 |1| | |1|   |1|",
   "+-+ +1+-+-+1+-+-+6+",
@@ -1176,8 +1176,8 @@ namespace {
 
     bool isMatchingPair(IndexPair cell1,IndexPair cell2) const
     {
-      const Numbers &works1 = (*this)[cell1.row][cell1.col];
-      const Numbers &works2 = (*this)[cell2.row][cell2.col];
+      const Numbers &works1 = (*this)[cell1];
+      const Numbers &works2 = (*this)[cell2];
       if (works1.size()!=2) return false;
       if (works2.size()!=2) return false;
       assert(isSorted(works1));
@@ -1185,6 +1185,24 @@ namespace {
       if (works1!=works2) return false;
       return true;
     }
+
+    bool
+      isMatchingTriple(IndexPair cell1,IndexPair cell2,IndexPair cell3) const
+    {
+      const Numbers &works1 = (*this)[cell1];
+      const Numbers &works2 = (*this)[cell2];
+      const Numbers &works3 = (*this)[cell3];
+      if (works1.size()!=3) return false;
+      if (works2.size()!=3) return false;
+      if (works3.size()!=3) return false;
+      assert(isSorted(works1));
+      assert(isSorted(works2));
+      assert(isSorted(works3));
+      if (works1!=works2) return false;
+      if (works1!=works3) return false;
+      return true;
+    }
+
 
     bool cellContains(IndexPair cell,Number v)
     {
@@ -1226,6 +1244,37 @@ namespace {
         IndexPair cell = {row,col};
         if (cell!=cell1 && cell!=cell2) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
+        }
+      }
+    }
+
+    void eliminateUsingTriplesInRegions(bool debug = false)
+    {
+      Index n_cells = size;
+
+      for (Index region : regionIndices()) {
+        for (Index c1 : irange(0,n_cells)) {
+          IndexPair cell1 = regionCell(region,c1);
+          const Numbers &numbers1 = (*this)[cell1];
+          if (numbers1.size()==3) {
+            for (Index c2 : irange(c1+1,n_cells)) {
+              IndexPair cell2 = regionCell(region,c2);
+              const Numbers &numbers2 = (*this)[cell2];
+              if (numbers2==numbers1) {
+                for (Index c3 : irange(c2+1,n_cells)) {
+                  IndexPair cell3 = regionCell(region,c3);
+                  const Numbers &numbers3 = (*this)[cell3];
+                  if (numbers3==numbers1) {
+                    if (debug) {
+                      cerr << "Found triple " <<
+                        cell1 << "," << cell2 << "," << cell3 << "\n";
+                    }
+                    eliminateTripleFromRegion(cell1,cell2,cell3);
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }
@@ -1348,6 +1397,27 @@ namespace {
       for (Index rc : irange(0,size)) {
         IndexPair cell = regionCell(region,rc);
         if (cell!=cell1 && cell!=cell2) {
+          eliminateFrom((*this)[cell],(*this)[cell1]);
+        }
+      }
+    }
+
+    void
+      eliminateTripleFromRegion(
+        IndexPair cell1,
+        IndexPair cell2,
+        IndexPair cell3
+      )
+    {
+      assert(isMatchingTriple(cell1,cell2,cell3));
+      Index region = regionOf(cell1);
+      assert(regionOf(cell2)==region);
+      assert(regionOf(cell3)==region);
+
+      for (Index rc : irange(0,size)) {
+        IndexPair cell = regionCell(region,rc);
+
+        if (cell!=cell1 && cell!=cell2 && cell!=cell3) {
           eliminateFrom((*this)[cell],(*this)[cell1]);
         }
       }
@@ -1745,6 +1815,10 @@ static bool
     }
   }
 
+  if (n_multi_valued_cells==0) {
+    return required_sum==0;
+  }
+
   if (n_multi_valued_cells==1) {
     // If only a single cell remains, then see if one of its values
     // matches our expected sum.
@@ -1757,6 +1831,35 @@ static bool
     }
 
     return false;
+  }
+
+  if (n_multi_valued_cells==required_sum) {
+    // There is more than 1 multi-valued cell, and they all must have
+    // a value of 1.  If the multi-valued cells are all in the same
+    // region, then this isn't valid.
+    Index unset_region(-1);
+    Index common_region = unset_region;
+    bool in_common_region = true;
+
+    for (IndexPair cell : constraint.area.cell_indices) {
+      if (works[cell].size()!=1) {
+        assert(works[cell].size()>1);
+        Index cell_region = regionOf(cell);
+
+        if (common_region==unset_region) {
+          common_region = cell_region;
+        }
+        else {
+          if (cell_region!=common_region) {
+            in_common_region = false;
+          }
+        }
+      }
+    }
+
+    if (in_common_region) {
+      return false;
+    }
   }
 
   int min = 0;
@@ -1813,12 +1916,22 @@ static WorksGrid
 
           new_works.setCellNumber(row,col,n);
 
-          if (!new_works.anyEmpty()) {
-            if (
-              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works)
-            ) {
-              new_numbers.push_back(n);
+          bool is_valid = true;
+
+          if (new_works.anyEmpty()) {
+            is_valid = false;
+          }
+
+          if (is_valid) {
+            bool constraints_are_satisified =
+              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works);
+            if (!constraints_are_satisified) {
+              is_valid = false;
             }
+          }
+
+          if (is_valid) {
+            new_numbers.push_back(n);
           }
         }
         assert(!new_numbers.empty());
@@ -1836,7 +1949,7 @@ static WorksGrid
 }
 
 
-#if 0
+#if 1
 static void
   solveWithSumConstraints(
     Board &board,
@@ -1853,6 +1966,22 @@ static void
   working_board.fillSingles();
   works = reducedWorksBySums(board,works,sum_constraints);
   working_board.fillSingles();
+  works.eliminateUsingTriplesInRegions();
+  working_board.fillSingles();
+  working_board.fillSingles();
+  works = reducedWorksBySums(board,works,sum_constraints);
+  working_board.fillSingles();
+  show("board",board,cerr);
+  works = reducedWorksBySums(board,works,sum_constraints);
+  works.show();
+  working_board.fillSingles();
+  show("board",board,cerr);
+  works = reducedWorksBySums(board,works,sum_constraints);
+  cerr << "--- last fill singles\n";
+  working_board.fillSingles();
+  // works.show();
+  // working_board.fillSingles();
+  // cerr << "---\n";
 
   show("board",board,cerr);
   works.show();
@@ -1900,7 +2029,7 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
 }
 
 
-#if 0
+#if 1
 static void
   testSolvingASumPuzzle(
     const BoardState &test_board,
@@ -1929,6 +2058,20 @@ static void
     show("solution",board,cout);
   }
 #endif
+}
+#endif
+
+
+#if 0
+static void
+  testSolvingASumPuzzle2(const BoardState &test_board,const SumSpec &sum_spec)
+{
+  Board board(test_board);
+  SumConstraints sum_constraints = makeSumConstraints(sum_spec);
+  SumPuzzle puzzle(&sum_constraints);
+  WorksSolver solver(board,&puzzle,/*debug*/true);
+  solver.deepSolve();
+  show("result",board,cerr);
 }
 #endif
 
@@ -2353,38 +2496,29 @@ static void testSumConstraintIsSatisifiedByWorks()
   const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
   const SumPuzzle puzzle(&sum_constraints);
   const WorksGrid initial_works_grid = makePuzzleWorksGrid(board,puzzle);
-  {
-    const SumConstraint constraint =
-      sumConstraintThatContainsCell(sum_constraints,{5,8});
+
+  struct Tester {
+    const SumConstraints &sum_constraints;
+    const WorksGrid &initial_works_grid;
+
+    bool isSatisfied(Index row,Index col,Number number) const
     {
+      const SumConstraint constraint =
+        sumConstraintThatContainsCell(sum_constraints,{row,col});
       WorksGrid works_grid = initial_works_grid;
-      works_grid.setCellNumber(5,8,'8');
-      assert(!sumConstraintIsSatisfiedByWorks(constraint,works_grid));
+      assert(contains(works_grid[row][col],number));
+      works_grid.setCellNumber(row,col,number);
+      return sumConstraintIsSatisfiedByWorks(constraint,works_grid);
     }
-    {
-      WorksGrid works_grid = initial_works_grid;
-      assert(contains(works_grid[5][8],'9'));
-      works_grid.setCellNumber(5,8,'9');
-      assert(sumConstraintIsSatisfiedByWorks(constraint,works_grid));
-    }
-  }
-  {
-    const SumConstraint constraint =
-      sumConstraintThatContainsCell(sum_constraints,{6,8});
-    {
-      WorksGrid works_grid = initial_works_grid;
-      works_grid.setCellNumber(6,8,'8');
-      assert(!sumConstraintIsSatisfiedByWorks(constraint,works_grid));
-    }
-  }
-  {
-    const SumConstraint constraint =
-      sumConstraintThatContainsCell(sum_constraints,{2,0});
-    WorksGrid works_grid = initial_works_grid;
-    assert(contains(works_grid[2][0],'1'));
-    works_grid.setCellNumber(2,0,'1');
-    assert(sumConstraintIsSatisfiedByWorks(constraint,works_grid));
-  }
+  };
+
+  Tester tester{sum_constraints,initial_works_grid};
+
+  assert(!tester.isSatisfied(/*row*/5,/*col*/8,/*number*/'8'));
+  assert( tester.isSatisfied(/*row*/5,/*col*/8,/*number*/'9'));
+  assert(!tester.isSatisfied(/*row*/5,/*col*/8,/*number*/'8'));
+  assert( tester.isSatisfied(/*row*/2,/*col*/0,/*number*/'1'));
+  assert(!tester.isSatisfied(/*row*/5,/*col*/6,/*number*/'4'));
 }
 
 
@@ -2525,7 +2659,10 @@ static void runTests()
   testSolvingAPuzzle(test_board7,/*show*/false);
   testSolvingAPuzzle(test_board8,/*show*/false);
 
-  // testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
+  testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
+
+  // Try using the standard solver
+  // testSolvingASumPuzzle2(test_board_9,test_sum_spec_9);
 }
 
 
