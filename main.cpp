@@ -10,6 +10,7 @@ using std::cerr;
 using std::cout;
 using std::vector;
 using std::ostream;
+using std::string;
 
 using Index = int;
 using Number = char;
@@ -18,7 +19,7 @@ using BoardState = Number [9][10];
 using SumSpec = const char [19][20];
 
 
-static const BoardState test_board1 = {
+static const BoardState test_board_1 = {
   "92  8  17",
   "1    26  ",
   " 7   34  ",
@@ -31,7 +32,7 @@ static const BoardState test_board1 = {
 };
 
 
-static const BoardState test_board2 = {
+static const BoardState test_board_2 = {
   "      1  ",
   "    3   9",
   "   1   82",
@@ -44,7 +45,7 @@ static const BoardState test_board2 = {
 };
 
 
-static const BoardState test_board3 = {
+static const BoardState test_board_3 = {
   "5     291",
   "1 82  4  ",
   "      8  ",
@@ -57,7 +58,7 @@ static const BoardState test_board3 = {
 };
 
 
-static const BoardState test_board4 = {
+static const BoardState test_board_4 = {
   "        5",
   "   94  2 ",
   "     597 ",
@@ -70,7 +71,7 @@ static const BoardState test_board4 = {
 };
 
 
-static const BoardState test_board5 = {
+static const BoardState test_board_5 = {
   "        5",
   "5  94  2 ",
   "     597 ",
@@ -83,7 +84,7 @@ static const BoardState test_board5 = {
 };
 
 
-static const BoardState test_board6 = {
+static const BoardState test_board_6 = {
   "        5",
   "   94  2 ",
   "     597 ",
@@ -96,7 +97,7 @@ static const BoardState test_board6 = {
 };
 
 
-static const BoardState test_board7 = {
+static const BoardState test_board_7 = {
   "      5  ",
   "  4    6 ",
   "    69   ",
@@ -109,7 +110,7 @@ static const BoardState test_board7 = {
 };
 
 
-static const BoardState test_board8 = {
+static const BoardState test_board_8 = {
   "   6 5  2",
   "49    5  ",
   "5  4  73 ",
@@ -1001,7 +1002,7 @@ static bool
 
 static void testNonReportingChecker()
 {
-  Board board(test_board1);
+  Board board(test_board_1);
   assert(!Checker(board,/*show_violations*/false).checkIsSolved());
 }
 
@@ -1915,41 +1916,147 @@ static SumConstraint
 }
 
 
-#if 0
-static bool allCellsInAreaAreInTheSameRegion(const Area &/*area*/)
+template <typename CellIndexFunction>
+static bool
+  allCellsInAreaHaveACommonIndex(
+    const Area &area,const CellIndexFunction &cell_index_function
+  )
 {
+  const Index no_index = -1;
+  Index common_index = no_index;
+
   for (const IndexPair &cell : area.cell_indices) {
-    assert(false);
+    Index index = cell_index_function(cell);
+
+    if (common_index==no_index) {
+      common_index = index;
+    }
+    else {
+      if (common_index!=index) {
+        return false;
+      }
+    }
   }
 
-  assert(false);
+  return true;
 }
-#endif
 
 
-#if 0
+static bool allCellsInAreaAreInTheSameRegion(const Area &area)
+{
+  auto region_index_function =
+    [](const IndexPair &cell){ return regionOf(cell); };
+  return allCellsInAreaHaveACommonIndex(area,region_index_function);
+}
+
+
+static bool allCellsInAreaAreInTheSameRow(const Area &area)
+{
+  auto row_index_function =
+    [](const IndexPair &cell){ return cell.row; };
+  return allCellsInAreaHaveACommonIndex(area,row_index_function);
+}
+
+
+static bool allCellsInAreaAreInTheSameColumn(const Area &area)
+{
+  auto column_index_function =
+    [](const IndexPair &cell){ return cell.col; };
+  return allCellsInAreaHaveACommonIndex(area,column_index_function);
+}
+
+
 static bool cellNumbersMustBeDistinctInArea(const Area &area)
 {
-  if (allCellsInAreaAreInTheSameRegion(area)) {
-    assert(false);
+  return
+    allCellsInAreaAreInTheSameRegion(area) ||
+    allCellsInAreaAreInTheSameRow(area) ||
+    allCellsInAreaAreInTheSameColumn(area);
+}
+
+
+static Numbers
+  numbersWithout(const Numbers &input_numbers,Number number_to_remove)
+{
+  Numbers result = input_numbers;
+  removeIf(result,[&](Number n){ return number_to_remove==n; });
+  return result;
+}
+
+
+static bool
+  distinctSumCanBeSatisified(
+    int required_sum,
+    int n_cells,
+    const Numbers &possible_numbers
+  )
+{
+  if (n_cells==0) {
+    return required_sum==0;
   }
 
-  assert(false);
+  for (Number number : possible_numbers) {
+    int i = numericValue(number);
+    Numbers remaining_numbers =
+      numbersWithout(possible_numbers,number);
+    bool can_be_satisified =
+      distinctSumCanBeSatisified(required_sum-i,n_cells-1,remaining_numbers);
+
+    if (can_be_satisified) {
+      return true;
+    }
+  }
+
+  return false;
 }
-#endif
 
 
-#if 0
-static Numbers possibleNumbersInSumConstraint(const SumConstraint &constraint)
+static Numbers allNumbers()
+{
+  Numbers result;
+  forEachNumber([&](Number n){ result.push_back(n); });
+  return result;
+}
+
+
+static Numbers
+  distinctSumNumbers(
+    int n_cells,
+    int required_sum,
+    const Numbers &possible_numbers
+  )
+{
+  Numbers result;
+
+  for (Number number : possible_numbers) {
+    int i = numericValue(number);
+    Numbers remaining_numbers =
+      numbersWithout(possible_numbers,number);
+
+    if (distinctSumCanBeSatisified(required_sum-i,n_cells-1,remaining_numbers)) {
+      result.push_back(number);
+    }
+  }
+
+  return result;
+}
+
+
+static Numbers
+  possibleNumbersInSumConstraint(
+    const SumConstraint &constraint,
+    const Numbers &possible_numbers
+  )
 {
   if (cellNumbersMustBeDistinctInArea(constraint.area)) {
-    assert(false);
+    int n_cells = constraint.area.cell_indices.size();
+    return
+      distinctSumNumbers(n_cells,constraint.required_sum,possible_numbers);
   }
   else {
     assert(false);
   }
 }
-#endif
 
 
 static WorksGrid
@@ -2027,7 +2134,7 @@ static WorksGrid
 }
 
 
-#if 1
+#if 0
 static void
   solveWithSumConstraints(
     Board &board,
@@ -2069,7 +2176,7 @@ static void
 
 static void testUniqueness()
 {
-  Board board(test_board1);
+  Board board(test_board_1);
   board[0][2] = '1';
   assert(!StandardPuzzle().boardIsValid(board));
 }
@@ -2107,7 +2214,7 @@ static void testSolvingAPuzzle(const BoardState &test_board,bool show_it)
 }
 
 
-#if 1
+#if 0
 static void
   testSolvingASumPuzzle(
     const BoardState &test_board,
@@ -2232,7 +2339,7 @@ static void testContains()
 
 static void testWorksGrid()
 {
-  Board board = test_board4;
+  Board board = test_board_4;
   WorksGrid works_grid = makePuzzleWorksGrid(board,StandardPuzzle());
   {
     IndexPair cell = {0,5};
@@ -2274,7 +2381,7 @@ static void testWorksGrid()
 
 static void testWorksSolver()
 {
-  Board board = test_board4;
+  Board board = test_board_4;
   StandardPuzzle puzzle;
   WorksSolver solver(board,&puzzle);
   solver.handlePairs();
@@ -2548,25 +2655,70 @@ static void testCheckerWithSums()
 }
 
 
-#if 0
 static void testCellNumbersMustBeDistinctInArea()
 {
-  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-  const SumConstraint &constraint =
-    sumConstraintContainingCell(sum_constraints,{6,0});
-  bool result = cellNumbersMustBeDistinctInArea(constraint.area);
-  assert(result==true);
+  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+
+  struct {
+    const IndexPair cell;
+    const bool expected_result;
+  } const table[] = {
+    {{6,0}, true},
+    {{5,0}, false},
+    {{0,0}, true},
+    {{5,8}, true}
+  };
+
+  for (auto &entry : table) {
+    const SumConstraint &constraint =
+      sumConstraintContainingCell(sum_constraints,entry.cell);
+    bool result = cellNumbersMustBeDistinctInArea(constraint.area);
+    assert(result==entry.expected_result);
+  }
 }
-#endif
 
 
-#if 0
+static Numbers makeNumbers(const string &numbers_string)
+{
+  return vector<Number>(numbers_string.begin(),numbers_string.end());
+}
+
+
+static void testDistinctCellNumbers()
+{
+  Numbers result =
+    distinctSumNumbers(
+      /*n_cells*/4,
+      /*required_sum*/16,
+      /*possible_numbers*/allNumbers()
+    );
+  Numbers expected_result = makeNumbers("123456789");
+  assert(result==expected_result);
+}
+
+
 static void testPossibleNumbersInSumConstraint()
 {
   const Board board(test_board_9);
   const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
-  const SumConstraint &sum_constraint = sumConstraintsAreSatisfied
-  Numbers numbers = possibleNumbersInSumConstraint(sum_constraints);
+  {
+    const SumConstraint &sum_constraint =
+      sumConstraintContainingCell(sum_constraints,{2,0});
+    Numbers possible_numbers = allNumbers();
+    const Numbers numbers =
+      possibleNumbersInSumConstraint(sum_constraint,possible_numbers);
+    const Numbers expected_numbers = makeNumbers("12");
+    assert(numbers==expected_numbers);
+  }
+}
+
+
+#if 0
+static void testPossibleNumbersInSumConstraint2()
+{
+  // Test the case where the area of the constraint has numbers that
+  // do not need to be distinct.
+  assert(false);
 }
 #endif
 
@@ -2727,23 +2879,25 @@ static void runTests()
   testSumSpecAnalyzer();
   testMakeSumConstraints();
   testCheckerWithSums();
-  // testCellNumbersMustBeDistinctInArea();
-  // testPossibleNumbersInSumConstraint();
+  testCellNumbersMustBeDistinctInArea();
+  testDistinctCellNumbers();
+  testPossibleNumbersInSumConstraint();
+  // testPossibleNumbersInSumConstraint2();
   testSumConstraintIsSatisifiedByWorks();
   testCellValuesThatWorkWithSums();
   testBuildWorksGridWithSums();
   testReducedWorksBySums();
 
-  testSolvingAPuzzle(test_board1,/*show*/false);
-  testSolvingAPuzzle(test_board2,/*show*/false);
-  testSolvingAPuzzle(test_board3,/*show*/false);
-  testSolvingAPuzzle(test_board4,/*show*/false);
-  testSolvingAPuzzle(test_board5,/*show*/false);
-  testSolvingAPuzzle(test_board6,/*show*/false);
-  testSolvingAPuzzle(test_board7,/*show*/false);
-  testSolvingAPuzzle(test_board8,/*show*/false);
+  testSolvingAPuzzle(test_board_1,/*show*/false);
+  testSolvingAPuzzle(test_board_2,/*show*/false);
+  testSolvingAPuzzle(test_board_3,/*show*/false);
+  testSolvingAPuzzle(test_board_4,/*show*/false);
+  testSolvingAPuzzle(test_board_5,/*show*/false);
+  testSolvingAPuzzle(test_board_6,/*show*/false);
+  testSolvingAPuzzle(test_board_7,/*show*/false);
+  testSolvingAPuzzle(test_board_8,/*show*/false);
 
-  testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
+  // testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
 
   // Try using the standard solver
   // testSolvingASumPuzzle2(test_board_9,test_sum_spec_9);
@@ -2752,7 +2906,7 @@ static void runTests()
 
 int main(int argc,char **argv)
 {
-  if (argc==2 && std::string(argv[1])=="test") {
+  if (argc==2 && string(argv[1])=="test") {
     runTests();
     return 0;
   }
