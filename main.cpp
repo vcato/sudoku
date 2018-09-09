@@ -1454,6 +1454,21 @@ namespace {
       return result;
     }
 
+    vector<IndexPair> cellsThatWorkFor(Number v,Index region)
+    {
+      vector<IndexPair> result;
+      Index n_cells = size;
+
+      for (Index cell_number : irange(0,n_cells)) {
+        IndexPair cell = regionCell(region,cell_number);
+        if (contains((*this)[cell],v)) {
+          result.push_back(cell);
+        }
+      }
+
+      return result;
+    }
+
     void showCell(Index row,Index col) const
     {
       const Numbers &workable = (*this)[row][col];
@@ -1589,6 +1604,30 @@ struct WorkingBoard {
     });
   }
 
+  void fillSinglesInRegion(Index region)
+  {
+    forEachNumber([&](Number v){
+      vector<IndexPair> cells_that_work = works.cellsThatWorkFor(v,region);
+
+      if (cells_that_work.size()==1) {
+        IndexPair cell = cells_that_work[0];
+        Index row = cell.row;
+        Index col = cell.col;
+
+        if (board.cellIsEmpty(row,col)) {
+          if (debug) {
+            cerr << v << " can only be in cell " << cell <<
+              " in region " << region << "\n";
+          }
+          board[cell] = v;
+          works[cell] = {v};
+          works.eliminateInRow(cell);
+          works.eliminateInColumn(cell);
+        }
+      }
+    });
+  }
+
   void fillSinglesInCell(Index row,Index col)
   {
     assert(board.cellIsEmpty(row,col));
@@ -1620,6 +1659,13 @@ struct WorkingBoard {
     }
   }
 
+  void fillRegionSingles()
+  {
+    for (auto region : board.regionIndices()) {
+      fillSinglesInRegion(region);
+    }
+  }
+
   void fillCellSingles()
   {
     for (auto row : board.rowIndices()) {
@@ -1635,6 +1681,7 @@ struct WorkingBoard {
   {
     fillRowSingles();
     fillColumnSingles();
+    fillRegionSingles();
     fillCellSingles();
   }
 };
@@ -1985,24 +2032,74 @@ static Numbers
 
 
 static bool
-  distinctSumCanBeSatisified(
+  sumCanBeSatisifiedWithNumber(
     int required_sum,
     int n_cells,
-    const Numbers &possible_numbers
+    const Numbers &possible_numbers,
+    const Number number
   )
 {
-  if (n_cells==0) {
-    return required_sum==0;
+  assert(required_sum>=0);
+
+  int i = numericValue(number);
+
+  if (i>required_sum) {
+    return false;
+  }
+
+  int remaining_sum = required_sum - i;
+  int remaining_cells = n_cells - 1;
+
+  if (remaining_cells==0) {
+    return remaining_sum==0;
   }
 
   for (Number number : possible_numbers) {
-    int i = numericValue(number);
-    Numbers remaining_numbers =
-      numbersWithout(possible_numbers,number);
-    bool can_be_satisified =
-      distinctSumCanBeSatisified(required_sum-i,n_cells-1,remaining_numbers);
+    bool can_be_satisified_with_number =
+      sumCanBeSatisifiedWithNumber(
+        remaining_sum,remaining_cells,possible_numbers,number
+      );
 
-    if (can_be_satisified) {
+    if (can_be_satisified_with_number) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+static bool
+  distinctSumCanBeSatisifiedWithNumber(
+    int required_sum,
+    int n_cells,
+    const Numbers &possible_numbers,
+    const Number number
+  )
+{
+  assert(required_sum>=0);
+
+  int i = numericValue(number);
+
+  if (i>required_sum) {
+    return false;
+  }
+
+  Numbers remaining_numbers = numbersWithout(possible_numbers,number);
+  int remaining_sum = required_sum - i;
+  int remaining_cells = n_cells - 1;
+
+  if (remaining_cells==0) {
+    return remaining_sum==0;
+  }
+
+  for (Number number : remaining_numbers) {
+    bool can_be_satisified_with_number =
+      distinctSumCanBeSatisifiedWithNumber(
+        remaining_sum,remaining_cells,remaining_numbers,number
+      );
+
+    if (can_be_satisified_with_number) {
       return true;
     }
   }
@@ -2020,7 +2117,7 @@ static Numbers allNumbers()
 
 
 static Numbers
-  distinctSumNumbers(
+  sumNumbers(
     int n_cells,
     int required_sum,
     const Numbers &possible_numbers
@@ -2029,11 +2126,15 @@ static Numbers
   Numbers result;
 
   for (Number number : possible_numbers) {
-    int i = numericValue(number);
-    Numbers remaining_numbers =
-      numbersWithout(possible_numbers,number);
+    bool can_be_satisified_with_number =
+      sumCanBeSatisifiedWithNumber(
+        required_sum,
+        n_cells,
+        possible_numbers,
+        number
+      );
 
-    if (distinctSumCanBeSatisified(required_sum-i,n_cells-1,remaining_numbers)) {
+    if (can_be_satisified_with_number) {
       result.push_back(number);
     }
   }
@@ -2043,18 +2144,44 @@ static Numbers
 
 
 static Numbers
-  possibleNumbersInSumConstraint(
-    const SumConstraint &constraint,
+  distinctSumNumbers(
+    int n_cells,
+    int required_sum,
     const Numbers &possible_numbers
   )
 {
+  Numbers result;
+
+  for (Number number : possible_numbers) {
+    bool can_be_satisified_with_number =
+      distinctSumCanBeSatisifiedWithNumber(
+        required_sum,
+        n_cells,
+        possible_numbers,
+        number
+      );
+
+    if (can_be_satisified_with_number) {
+      result.push_back(number);
+    }
+  }
+
+  return result;
+}
+
+
+static Numbers
+  possibleNumbersInSumConstraint(const SumConstraint &constraint)
+{
+  Numbers possible_numbers = allNumbers();
+  int n_cells = constraint.area.cell_indices.size();
+
   if (cellNumbersMustBeDistinctInArea(constraint.area)) {
-    int n_cells = constraint.area.cell_indices.size();
     return
       distinctSumNumbers(n_cells,constraint.required_sum,possible_numbers);
   }
   else {
-    assert(false);
+    return sumNumbers(n_cells,constraint.required_sum,possible_numbers);
   }
 }
 
@@ -2074,40 +2201,16 @@ static WorksGrid
       const SumConstraint &sum_constraint =
         sumConstraintContainingCell(sum_constraints,{row,col});
       assert(numbers.size()>=1);
-#if 0
       Numbers possible_numbers =
         possibleNumbersInSumConstraint(sum_constraint);
-#endif
 
       if (numbers.size()>=2) {
         Numbers new_numbers;
 
         for (Number n : numbers) {
-#if 1
-          WorksGrid new_works = works;
-
-          new_works.setCellNumber(row,col,n);
-
-          bool is_valid = true;
-
-          if (new_works.anyEmpty()) {
-            is_valid = false;
-          }
-
-          if (is_valid) {
-            bool constraints_are_satisified =
-              sumConstraintsAreSatisfiedByWorks(sum_constraints,new_works);
-            if (!constraints_are_satisified) {
-              is_valid = false;
-            }
-          }
-
-          if (is_valid) {
-            new_numbers.push_back(n);
-          }
-#else
           if (contains(possible_numbers,n)) {
             WorksGrid new_works = works;
+            new_works.check_empty = false;
 
             new_works.setCellNumber(row,col,n);
 
@@ -2117,7 +2220,6 @@ static WorksGrid
               }
             }
           }
-#endif
         }
         assert(!new_numbers.empty());
         new_works[row][col] = new_numbers;
@@ -2132,6 +2234,279 @@ static WorksGrid
 
   return new_works;
 }
+
+
+
+#if 0
+static bool deepBoardIsValid(Board &board,const Puzzle &puzzle,int depth)
+{
+  if (depth==0) {
+    return puzzle.boardIsValid(board);
+  }
+
+  forEachEmptyCell(board,[](IndexPair cell){
+    Numbers valid_numbers;
+
+    forEachNumber([](Number n){
+      board[cell] = n;
+      bool is_valid = deepBoardIsValid(board,puzzle,depth-1);
+      board[cell] = ' ';
+      if (is_valid) {
+        valid_numbers.push_back(n);
+      }
+    }
+
+    if (valid_numbers.empty()) {
+      return false;
+    }
+
+    if (valid_numbers.size()==1) {
+      board[cell] = valid_numbers.front();
+      bool is_valid = deepBoardIsValid(board,puzzle,depth);
+      board[cell] = ' ';
+
+      if (!is_valid) {
+        return false;
+      }
+    }
+  });
+
+  return true;
+}
+#endif
+
+
+#if 0
+static bool // return true if we can prove it, return false if not.
+  proveNumberCannotGoInCell(
+    const Puzzle &,
+    Board &,
+    IndexPair /*cell*/,
+    Number,
+    int /*proof_size_limit*/
+  )
+{
+  Index row = cell.row;
+  Index col = cell.col;
+
+  // We should never call this function if a cell is already filled,
+  // because to fill that cell, we must have already proven that no
+  // other number can go there, so anything else we might say about that
+  // cell would be redundant.
+  assert(board[cell].isEmpty());
+
+  board[cell] = number;
+  ValidResult result = proveBoardIsUnsolvable(board,puzzle,proof_size_limit);
+  board[cell].setEmpty();
+  return result.is_valid;
+}
+#endif
+
+
+#if 0
+static bool findGroupPositiveProof(group,proofs)
+{
+  // See if a group has only one unproven member
+  // for each member in group {
+  //   if !proofs[member] {
+  //     if (unproven_member) {
+  //       // Multiple unproven members
+  //       return false
+  //     }
+  //     unproven_member = member
+  //   }
+  // }
+  // if (unproven_member) {
+  //   // There was only a single unproven member
+  //   board[unproven_member.cell] = unproven_member.number
+  //   proof = sum{member in group}(proofs[member])
+  //   return proof
+  // }
+}
+#endif
+
+
+#if 0
+static bool findAnyPositiveProof()
+{
+  // We try to make some forward progress, finding a proof that a certain
+  // number must go in a certain cell.
+
+  // Find negative proofs for each cell and number
+
+  // for each cell {
+  //   for each number {
+  //     proofs[cell][number] = findNegativeProof(cell,number)
+  //   }
+  // }
+
+  // See if each row,col has only one unproven number
+  // for each cell {
+  //   group = []
+  //   for each number {
+  //     group.push_back({cell,number})
+  //   }
+  //   if (findProof(group)) return proof
+  // }
+  //
+  // See if each row,number has only one unproven col
+  // for each row {
+  //   for each number {
+  //     group = []
+  //     for each col {
+  //       group.push_back({{row,col},number})
+  //     }
+  //     if (findProof(group)) return proof
+  //   }
+  // }
+  //
+  // See if each col,number has only one unproven row
+  // for each col {
+  //   for each number {
+  //     group = []
+  //     for each row {
+  //       group.push_back({{row,col},number})
+  //     }
+  //     if (findProof(group)) return proof
+  //   }
+  // }
+  //
+  // See if each region,number has only one unproven row
+  // for each region {
+  //   for each number {
+  //     group = []
+  //     for each region_cell(region) {
+  //       group.push_back({region_cell(region),number})
+  //     }
+  //     if (findProof(group)) return proof
+  //   }
+  // }
+}
+#endif
+
+
+#if 0
+static void
+  runDeepeningSolver(const Puzzle &/*puzzle*/,Board &/*board*/)
+{
+  // We solve by finding cells we can fill one at a time.
+  // For each cell we fill, we try to find the minimum proof that
+  // the assignment is correct.
+
+  int max_proof_length = 1;
+
+  for (;;) {
+    PositiveProofFinderResult result = findPositiveProof(max_proof_length)
+
+    if (result.proof_was_found) {
+      board[result.found_cell] = result.found_number;
+      full_proof += result.proof;
+      max_proof_length = 1;
+    }
+    else {
+      ++max_proof_length;
+    }
+  }
+
+  // It seems clear that we should go through each cell, see which
+  // numbers work, and if there is only one number that works fill it in.
+
+  // If there are no cells with a single option, do we then try the
+  // cells with two options?
+
+  // It seems like the main thing we are trying to do is prove that
+  // a board isn't valid.  To do that, we have to find a cell that
+  // has no valid options.
+
+  // So we can do a level-1 check on each cell.  If a level-1 check
+  // doesn't fill any cells, then we could look for cells with two
+  // level-1 possibilities, and see how many level-2 possibilities it has.
+
+  // The main thing is we have a trade-off between going deeper on one
+  // cell or trying more cells.
+
+  // If a board is valid, then we're going to have to go through
+  // every cell anyway.  If the board isn't valid then it would be
+  // best to find that quickly.
+
+  // The top-level knowledge is the most valuable.
+  // Which cells are filled.
+  // The possible values for the cells.
+  // Can we remember anything else?
+  // The possible values for other cells if we use a particular number
+  // for a cell?
+
+  // It would be nice to have output like this:
+  // Cell 0,0 can only be 4:
+  //   Cell 0,0 can't be 2 because 2 is already in row 0
+  //   Cell 0,0 can't be 3 because if we make it 3 then
+  //    Cell 0,1 can't be 1 because there is already a 1 in row 0
+  //    Cell 0,1 can't be 2 because there is already a 2 in row 0
+  //    Cell 0,1 can't be 3 because there is already a 3 in column 0
+  //    Cell 0,1 can't be 4 because if we made it 4 then
+  //      ...
+  //    ...
+  //   Cell 0,0 can't be 5 because if we make it 5 then
+  //    ...
+  //   ...
+
+  // In other words, the output would give us a minimal proof of the solution.
+  // We find a cell which has the smallest proof that is is a certain number
+  // and fill it.
+  // That means we are looking for proofs of a certain length.
+  // We try to find proofs that are length n, and if that doesn't work,
+  // then we look for proofs of length n+1.
+  // The elements of the proof are statements of conflicts, which implies
+  // that the length of the proof is the number of conflicts.  That
+  // means that we can count the number of conflicts to determine when to
+  // stop.
+
+  // So we go through each cell and see if we can prove it must have
+  // a certain number in n steps.  If not, we try the next cell.
+  // Also, we could try rows, columns, and regions.
+  //   1 can only go in column 5 of row 0
+  //     1 can't go in column 0 of row 0:
+  //       ...
+  //     1 can't go in column 1 of row 0:
+  //       ...
+  //     ...
+
+  // We go to a cell and see if we can prove it can't be a certain number
+  // in n steps.  If we prove it in k steps, then we reduce n by k.
+  // If we eliminate all but one before n gets to 0, then we've proven it;
+  // we fill and continue.  If n gets to 0, then we reset n and go to the next
+  // possibility.
+  // For each number we try, if there isn't an immediate conflict, then
+  // we go deeper.
+  // As soon as we find two numbers that we can't prove are invalid, then we
+  // don't need to try this cell any more, since it isn't going to
+  // contribute to the proof.
+
+  // This approach seems right.  We are avoiding investigating anything
+  // too deeply.  We stop going too deep because the deeper we go, the
+  // more conflicts we need to make the proof.  We avoid trying too many
+  // options at any particular depth because if we don't look very
+  // deeply, then we easily find more than one option for a cell, which
+  // lets us avoid looking any further.  So our depth limit is helping
+  // us in two different ways.
+
+  // Increasing the depth limit by 1 each time probably won't be efficient
+  // enough, but we can try doubling it.  We won't get a minimal proof,
+  // but it should then be within a factor of 2 of minimal (maybe?).
+}
+#endif
+
+
+#if 0
+static void testDeepeningSolver()
+{
+  Board board(test_board_1);
+  StandardPuzzle puzzle;
+  runDeepeningSolver(puzzle,board);
+  Checker checker(board,/*show_violations*/false);
+  assert(checker.checkIsSolved());
+}
+#endif
 
 
 #if 0
@@ -2154,19 +2529,21 @@ static void
   works.eliminateUsingTriplesInRegions();
   working_board.fillSingles();
   working_board.fillSingles();
+  cerr << "---\n";
   works = reducedWorksBySums(board,works,sum_constraints);
   working_board.fillSingles();
-  show("board",board,cerr);
+  cerr << "---\n";
   works = reducedWorksBySums(board,works,sum_constraints);
-  works.show();
   working_board.fillSingles();
-  show("board",board,cerr);
+  cerr << "---\n";
+  works.eliminateUsingPairs();
   works = reducedWorksBySums(board,works,sum_constraints);
-  cerr << "--- last fill singles\n";
   working_board.fillSingles();
+#if 0
   // works.show();
   // working_board.fillSingles();
   // cerr << "---\n";
+#endif
 
   show("board",board,cerr);
   works.show();
@@ -2702,25 +3079,23 @@ static void testPossibleNumbersInSumConstraint()
   const Board board(test_board_9);
   const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
   {
+    // This is a case where the numbers have to be distinct
     const SumConstraint &sum_constraint =
       sumConstraintContainingCell(sum_constraints,{2,0});
-    Numbers possible_numbers = allNumbers();
-    const Numbers numbers =
-      possibleNumbersInSumConstraint(sum_constraint,possible_numbers);
+    const Numbers numbers = possibleNumbersInSumConstraint(sum_constraint);
     const Numbers expected_numbers = makeNumbers("12");
     assert(numbers==expected_numbers);
   }
+  {
+    // This is a case where the numbers don't have to be distinct.
+    const SumConstraint &sum_constraint =
+      sumConstraintContainingCell(sum_constraints,{2,3});
+    const Numbers numbers =
+      possibleNumbersInSumConstraint(sum_constraint);
+    const Numbers expected_numbers = makeNumbers("123456789");
+    assert(numbers==expected_numbers);
+  }
 }
-
-
-#if 0
-static void testPossibleNumbersInSumConstraint2()
-{
-  // Test the case where the area of the constraint has numbers that
-  // do not need to be distinct.
-  assert(false);
-}
-#endif
 
 
 static void testSumConstraintIsSatisifiedByWorks()
@@ -2855,8 +3230,26 @@ static void testReducedWorksBySums()
   const Numbers expected_5_8 = {'9'};
   const Numbers &numbers_6_8 = new_works[6][8];
   const Numbers expected_6_8 = {'7'};
+  const Numbers &numbers_6_0 = new_works[6][0];
   assert(numbers_5_8==expected_5_8);
   assert(numbers_6_8==expected_6_8);
+
+  // We have sum constraints that make it where the only place the '4'
+  // could be is in the upper-middle cell of the lower-left region.
+  assert(!contains(numbers_6_0,'4'));
+}
+
+
+static void testFillSingles()
+{
+  Board board(test_board_9);
+  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  SumPuzzle puzzle(&sum_constraints);
+  WorksGrid works = makePuzzleWorksGrid(board,puzzle);
+  works = reducedWorksBySums(board,works,sum_constraints);
+  WorkingBoard working_board{board,works,/*debug*/false};
+  working_board.fillSingles();
+  assert(board[6][1]=='4');
 }
 
 
@@ -2882,11 +3275,11 @@ static void runTests()
   testCellNumbersMustBeDistinctInArea();
   testDistinctCellNumbers();
   testPossibleNumbersInSumConstraint();
-  // testPossibleNumbersInSumConstraint2();
   testSumConstraintIsSatisifiedByWorks();
   testCellValuesThatWorkWithSums();
   testBuildWorksGridWithSums();
   testReducedWorksBySums();
+  testFillSingles();
 
   testSolvingAPuzzle(test_board_1,/*show*/false);
   testSolvingAPuzzle(test_board_2,/*show*/false);
@@ -2897,6 +3290,7 @@ static void runTests()
   testSolvingAPuzzle(test_board_7,/*show*/false);
   testSolvingAPuzzle(test_board_8,/*show*/false);
 
+  // testDeepeningSolver();
   // testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
 
   // Try using the standard solver
