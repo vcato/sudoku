@@ -5,158 +5,17 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include "grid.hpp"
+#include "board.hpp"
+#include "testboards.hpp"
+#include "puzzle.hpp"
+#include "standardpuzzle.hpp"
 
 using std::cerr;
 using std::cout;
 using std::vector;
 using std::ostream;
 using std::string;
-
-using Index = int;
-using Number = char;
-using Numbers = vector<Number>;
-using BoardState = Number [9][10];
-using SumSpec = const char [19][20];
-
-
-static const BoardState test_board_1 = {
-  "92  8  17",
-  "1    26  ",
-  " 7   34  ",
-  "   7352  ",
-  " 652 813 ",
-  "  8961   ",
-  "  96   7 ",
-  "  78    4",
-  "84  5  61"
-};
-
-
-static const BoardState test_board_2 = {
-  "      1  ",
-  "    3   9",
-  "   1   82",
-  " 4 3     ",
-  "  2     5",
-  "  1  586 ",
-  "13 498 5 ",
-  "6       3",
-  "    6 9  "
-};
-
-
-static const BoardState test_board_3 = {
-  "5     291",
-  "1 82  4  ",
-  "      8  ",
-  "6  45 7  ",
-  "  53 2 4 ",
-  "2     3 8",
-  "9  6    2",
-  "    7    ",
-  "  31     "
-};
-
-
-static const BoardState test_board_4 = {
-  "        5",
-  "   94  2 ",
-  "     597 ",
-  "9    8   ",
-  "   5  6  ",
-  " 18 2    ",
-  "1764532  ",
-  "4  871   ",
-  "385692741",
-};
-
-
-static const BoardState test_board_5 = {
-  "        5",
-  "5  94  2 ",
-  "     597 ",
-  "95  68   ",
-  "   5  6  ",
-  "618 2    ",
-  "1764532  ",
-  "4  871   ",
-  "385692741",
-};
-
-
-static const BoardState test_board_6 = {
-  "        5",
-  "   94  2 ",
-  "     597 ",
-  "9    8   ",
-  "   5  6  ",
-  " 18 2    ",
-  " 76  32  ",
-  "4   7    ",
-  " 856 2  1",
-};
-
-
-static const BoardState test_board_7 = {
-  "      5  ",
-  "  4    6 ",
-  "    69   ",
-  "         ",
-  "   47 6 9",
-  " 7 8 1  3",
-  " 2  9 3  ",
-  "6    8 15",
-  "    43 82",
-};
-
-
-static const BoardState test_board_8 = {
-  "   6 5  2",
-  "49    5  ",
-  "5  4  73 ",
-  "1  5   9 ",
-  "   8 7  4",
-  "8 3 6    ",
-  " 61      ",
-  "3  71    ",
-  "     6   ",
-};
-
-
-static const BoardState test_board_9 = {
-  "         ",
-  "     7   ",
-  "         ",
-  "       5 ",
-  "         ",
-  " 7       ",
-  "         ",
-  "   9     ",
-  "         ",
-};
-
-
-static SumSpec test_sum_spec_9 = {
-  "+-+-+-+-+-+-+-+-+-+",
-  "|16     |25 |2|21 |",
-  "+-+-+-+-+   +5+ + +",
-  "|25     |   | |   |",
-  "+-+-+-+-+-+ + +-+ +",
-  "|3|12 |13 | | |1| |",
-  "+ +-+-+ +-+-+ +4+-+",
-  "| |16 | |1|1| |   |",
-  "+-+-+ +-+4+1+-+-+-+",
-  "|13 | |9| | |6|15 |",
-  "+-+-+-+ + +-+ +-+-+",
-  "|14 |1| | |1|   |1|",
-  "+-+ +1+-+-+1+-+-+6+",
-  "|3| | |3|   |13 | |",
-  "+5+-+ +5+-+-+-+-+-+",
-  "|   | |   |14     |",
-  "+   + +   +-+-+-+-+",
-  "|   | |   |18     |",
-  "+-+-+-+-+-+-+-+-+-+",
-};
 
 
 template <typename T,typename Predicate>
@@ -185,293 +44,10 @@ static const T& elementWhere(const vector<T> &v,const Predicate &f)
 }
 
 
-static bool isValidCellValue(Number c)
-{
-  return (c==' ' || (c>='1' && c<='9'));
-}
-
-
-static bool isValidCellValue(const Numbers &)
-{
-  return true;
-}
-
-
-namespace {
-  template <typename Index>
-  struct IndexRange {
-    Index begin_index;
-    Index end_index;
-
-    struct iterator :
-      std::iterator<
-        std::forward_iterator_tag,
-        Index
-      >
-    {
-      iterator(Index index) : index(index) { }
-
-      Index operator*() const { return index; }
-      bool operator==(const iterator &that) const { return index==that.index; }
-      bool operator!=(const iterator &that) const { return !(*this==that); }
-
-      iterator& operator++()
-      {
-        ++index;
-        return *this;
-      }
-
-      private:
-        Index index;
-    };
-
-    iterator begin() const { return iterator{begin_index}; }
-    iterator end()   const { return iterator{end_index}; }
-  };
-}
-
-
-template <
-  typename T,
-  typename U,
-  typename TU = typename std::common_type<T,U>::type
->
-static inline IndexRange<TU> irange(T first,U last)
-{
-  return {first,last};
-}
-
-
-template <typename T>
-static inline IndexRange<typename T::size_type> irange(const T& container)
-{
-  return {0,container.size()};
-}
-
-
-namespace {
-  struct IndexPair {
-    Index row;
-    Index col;
-
-    IndexPair(Index row_arg,Index col_arg)
-    : row(row_arg), col(col_arg)
-    {
-    }
-
-    bool operator==(const IndexPair &arg) const
-    {
-      return row==arg.row && col==arg.col;
-    }
-
-    bool operator!=(const IndexPair &arg) const
-    {
-      return !operator==(arg);
-    }
-  };
-}
-
-
 static ostream& operator<<(ostream& stream,const IndexPair &cell)
 {
   stream << "(" << cell.row << "," << cell.col << ")";
   return stream;
-}
-
-
-static IndexPair regionCell(Index region,Index region_cell_index)
-{
-  Index region_row = region / 3;
-  Index region_col = region % 3;
-  Index cell_row = region_cell_index / 3;
-  Index cell_col = region_cell_index % 3;
-
-  return {cell_row + region_row*3,cell_col + region_col*3};
-}
-
-
-namespace {
-  enum { grid_size = 9 };
-}
-
-namespace {
-  template <typename CellValue>
-  class Grid {
-    public:
-      enum {size = grid_size};
-
-      struct CellRef {
-        Grid &grid;
-        Index row, column;
-
-        operator CellValue &() const { return grid.cell(row,column); }
-
-        CellValue &value() const { return grid.cell(row,column); }
-
-        CellRef operator=(CellValue value)
-        {
-          grid.setCell(row,column,value);
-          return *this;
-        }
-      };
-
-      struct RowRef {
-        Grid &grid;
-        Index row;
-
-        CellRef operator[](Index column) { return {grid,row,column}; }
-      };
-
-      struct ConstRowRef {
-        const Grid &grid;
-        Index row;
-
-        const CellValue &operator[](Index column)
-        {
-          return grid.cell(row,column);
-        }
-      };
-
-      bool operator==(const Grid &arg) const
-      {
-        return cells==arg.cells;
-      }
-
-      bool operator!=(const Grid &arg) const
-      {
-        return !operator==(arg);
-      }
-
-      Grid(CellValue v) : cells(size*size,v) { }
-      RowRef operator[](Index index) { return {*this,index}; }
-      ConstRowRef operator[](Index index) const { return {*this,index}; }
-      CellRef operator[](IndexPair cell) { return {*this,cell.row,cell.col}; }
-
-      const CellValue &operator[](IndexPair cell) const
-      {
-        return this->cell(cell.row,cell.col);
-      }
-
-      size_t cellIndex(Index row,Index column) const
-      {
-        assert(row>=0);
-        assert(row<size);
-        assert(column>=0);
-        assert(column<size);
-        size_t cell_index = row*size+column;
-        assert(cell_index<cells.size());
-        return cell_index;
-      }
-
-      const CellValue &cell(Index row,Index column) const
-      {
-        return cells[cellIndex(row,column)];
-      }
-
-      CellValue &cell(Index row,Index column)
-      {
-        return cells[cellIndex(row,column)];
-      }
-
-      void setCell(Index row,Index column,CellValue cell_value)
-      {
-        assert(isValidCellValue(cell_value));
-        cells[cellIndex(row,column)] = cell_value;
-      }
-
-      template <typename Func>
-      void forEachPairOfCellsInRow(Index row,const Func &func)
-      {
-        Index n_cols = size;
-
-        for (Index col1 : irange(0,n_cols)) {
-          for (Index col2 : irange(col1+1,n_cols)) {
-            func(IndexPair{row,col1},{row,col2});
-          }
-        }
-      }
-
-      template <typename Func>
-      void forEachPairOfCellsInColumn(Index col,const Func &func)
-      {
-        Index n_rows = size;
-
-        for (Index row1 : irange(0,n_rows)) {
-          for (Index row2 : irange(row1+1,n_rows)) {
-            func(IndexPair{row1,col},{row2,col});
-          }
-        }
-      }
-
-      template <typename Func>
-      void forEachPairOfCellsInRegion(Index region,const Func &func)
-      {
-        Index n_cells = size;
-
-        for (Index cell1 : irange(0,n_cells)) {
-          for (Index cell2 : irange(cell1+1,n_cells)) {
-            func(regionCell(region,cell1),regionCell(region,cell2));
-          }
-        }
-      }
-
-      IndexRange<Index> rowIndices()    const { return {0,size}; }
-      IndexRange<Index> columnIndices() const { return {0,size}; }
-      IndexRange<Index> regionIndices() const { return {0,size}; }
-
-    private:
-      vector<CellValue> cells;
-  };
-}
-
-
-namespace {
-  struct Board : Grid<Number> {
-    public:
-      Board() : Grid<Number>(' ') { }
-
-      Board(const Number (&cell_values)[size][size+1])
-      : Board()
-      {
-        for (auto row : rowIndices()) {
-          for (auto col : columnIndices()) {
-            (*this)[row][col] = cell_values[row][col];
-          }
-          assert(cell_values[row][size]=='\0');
-        }
-      }
-
-      bool cellIsEmpty(Index row,Index col) const
-      {
-        return (*this)[row][col]==' ';
-      }
-  };
-}
-
-
-static void show(const char *desc,const Board &board,ostream &stream)
-{
-  stream << desc << ":\n";
-  for (auto row : board.rowIndices()) {
-    stream << "  ";
-    if (row>0 && row%3==0) {
-      for (auto col : board.columnIndices()) {
-        if (col>0 && col%3==0) {
-          stream << "+";
-        }
-        stream << "-";
-      }
-      stream << "\n";
-      stream << "  ";
-    }
-    for (auto col : board.columnIndices()) {
-      if (col>0 && col%3==0) {
-        stream << "|";
-      }
-      stream << board[row][col];
-    }
-    stream << "\n";
-  }
 }
 
 
@@ -482,12 +58,13 @@ namespace {
 }
 
 
-namespace {
-  static bool isValidCellValue(const IndexPair &)
-  {
-    return true;
-  }
+static bool isValidCellValue(const IndexPair &)
+{
+  return true;
+}
 
+
+namespace {
   struct IndexPairUnionFind {
     Grid<IndexPair> parents;
 
@@ -693,46 +270,6 @@ static void testShowingASudokuBoard()
 }
 
 
-static Numbers boardRowNumbers(const Board &board,Index row)
-{
-  Numbers result;
-  result.reserve(board.size);
-  for (auto column : board.columnIndices()) {
-    result.push_back(board[row][column]);
-  }
-  return result;
-}
-
-
-static Numbers boardColumnNumbers(const Board &board,Index column)
-{
-  Numbers result;
-  result.reserve(board.size);
-  for (auto row : board.rowIndices()) {
-    result.push_back(board[row][column]);
-  }
-  return result;
-}
-
-
-static Numbers boardRegionNumbers(const Board &board,Index region)
-{
-  assert(region>=0 && region<9);
-  assert(board.size==9);
-  Numbers result;
-  result.reserve(9);
-  int x = region%3;
-  int y = region/3;
-  for (int i=0; i!=3; ++i) {
-    for (int j=0; j!=3; ++j) {
-      result.push_back(board[y*3+i][x*3+j]);
-    }
-  }
-  assert(result.size()==9);
-  return result;
-}
-
-
 static inline ostream& operator<<(ostream& stream,const Numbers &cell_values)
 {
   for (auto cell_value : cell_values) {
@@ -877,116 +414,6 @@ struct BoardCellRangeCalculator {
 
 
 
-namespace {
-  struct Checker {
-    const Board &board;
-    bool report;
-
-    Checker(const Board &board,bool show_violations)
-    : board(board),
-      report(show_violations)
-    {
-    }
-
-    void showBoard() { show("failure",board,cerr); }
-
-    bool checkNumbersAreUnique(const Numbers &cells)
-    {
-      vector<bool> used(board.size,false);
-
-      for (auto i : irange(cells)) {
-        Number cell = cells[i];
-        if (cell!=' ') {
-          int value = cell-'1';
-          assert(value>=0);
-          assert(value<static_cast<int>(used.size()));
-          if (used[value]) {
-            if (report) {
-              cerr << cell << " is used more than once.\n";
-            }
-            return false;
-          }
-          used[value] = true;
-        }
-      }
-      return true;
-    }
-
-
-    bool checkAllCellsAreFilled()
-    {
-      for (auto i : board.rowIndices()) {
-        for (auto j : board.columnIndices()) {
-          if (board.cellIsEmpty(i,j)) {
-            if (report) {
-              cerr << "row " << i+1 << " column " << j+1 << " is not filled.\n";
-              showBoard();
-            }
-            return false;
-          }
-        }
-      }
-
-      return true;
-    }
-
-    bool allRowsHaveUniqueNumbers()
-    {
-      for (auto i : board.rowIndices()) {
-        if (!checkNumbersAreUnique(boardRowNumbers(board,i))) {
-          if (report) {
-            cerr << " on row " << i+1 << "\n";
-            showBoard();
-          }
-          return false;
-        }
-      }
-      return true;
-    }
-
-    bool allColumnsHaveUniqueNumbers()
-    {
-      for (auto i : board.columnIndices()) {
-        if (!checkNumbersAreUnique(boardColumnNumbers(board,i))) {
-          if (report) {
-            cerr << " on column " << i+1 << "\n";
-            showBoard();
-          }
-          return false;
-        }
-      }
-      return true;
-    }
-
-    bool allRegionsHaveUniqueNumbers()
-    {
-      for (auto i : board.regionIndices()) {
-        if (!checkNumbersAreUnique(boardRegionNumbers(board,i))) {
-          if (report) {
-            cerr << " in region " << i+1 << "\n";
-            showBoard();
-          }
-          return false;
-        }
-      }
-      return true;
-    }
-
-    bool checkUniqueness()
-    {
-      return allRowsHaveUniqueNumbers() &&
-             allColumnsHaveUniqueNumbers() &&
-             allRegionsHaveUniqueNumbers();
-    }
-
-    bool checkIsSolved()
-    {
-      return checkAllCellsAreFilled() && checkUniqueness();
-    }
-  };
-}
-
-
 static bool
   boardSumConstraintsAreSatisfied(
     const Board &board,
@@ -1002,25 +429,8 @@ static bool
 
 static void testNonReportingChecker()
 {
-  Board board(test_board_1);
+  Board board(testBoard1());
   assert(!Checker(board,/*show_violations*/false).checkIsSolved());
-}
-
-
-namespace {
-struct Puzzle {
-  virtual bool boardIsValid(const Board &baord) const = 0;
-};
-}
-
-
-namespace {
-struct StandardPuzzle : Puzzle {
-  bool boardIsValid(const Board &board) const override
-  {
-    return Checker(board,/*show_violations*/false).checkUniqueness();
-  }
-};
 }
 
 
@@ -2238,278 +1648,6 @@ static WorksGrid
 
 
 #if 0
-static bool deepBoardIsValid(Board &board,const Puzzle &puzzle,int depth)
-{
-  if (depth==0) {
-    return puzzle.boardIsValid(board);
-  }
-
-  forEachEmptyCell(board,[](IndexPair cell){
-    Numbers valid_numbers;
-
-    forEachNumber([](Number n){
-      board[cell] = n;
-      bool is_valid = deepBoardIsValid(board,puzzle,depth-1);
-      board[cell] = ' ';
-      if (is_valid) {
-        valid_numbers.push_back(n);
-      }
-    }
-
-    if (valid_numbers.empty()) {
-      return false;
-    }
-
-    if (valid_numbers.size()==1) {
-      board[cell] = valid_numbers.front();
-      bool is_valid = deepBoardIsValid(board,puzzle,depth);
-      board[cell] = ' ';
-
-      if (!is_valid) {
-        return false;
-      }
-    }
-  });
-
-  return true;
-}
-#endif
-
-
-#if 0
-static bool // return true if we can prove it, return false if not.
-  proveNumberCannotGoInCell(
-    const Puzzle &,
-    Board &,
-    IndexPair /*cell*/,
-    Number,
-    int /*proof_size_limit*/
-  )
-{
-  Index row = cell.row;
-  Index col = cell.col;
-
-  // We should never call this function if a cell is already filled,
-  // because to fill that cell, we must have already proven that no
-  // other number can go there, so anything else we might say about that
-  // cell would be redundant.
-  assert(board[cell].isEmpty());
-
-  board[cell] = number;
-  ValidResult result = proveBoardIsUnsolvable(board,puzzle,proof_size_limit);
-  board[cell].setEmpty();
-  return result.is_valid;
-}
-#endif
-
-
-#if 0
-static bool findGroupPositiveProof(group,proofs)
-{
-  // See if a group has only one unproven member
-  // for each member in group {
-  //   if !proofs[member] {
-  //     if (unproven_member) {
-  //       // Multiple unproven members
-  //       return false
-  //     }
-  //     unproven_member = member
-  //   }
-  // }
-  // if (unproven_member) {
-  //   // There was only a single unproven member
-  //   board[unproven_member.cell] = unproven_member.number
-  //   proof = sum{member in group}(proofs[member])
-  //   return proof
-  // }
-}
-#endif
-
-
-#if 0
-static bool findAnyPositiveProof()
-{
-  // We try to make some forward progress, finding a proof that a certain
-  // number must go in a certain cell.
-
-  // Find negative proofs for each cell and number
-
-  // for each cell {
-  //   for each number {
-  //     proofs[cell][number] = findNegativeProof(cell,number)
-  //   }
-  // }
-
-  // See if each row,col has only one unproven number
-  // for each cell {
-  //   group = []
-  //   for each number {
-  //     group.push_back({cell,number})
-  //   }
-  //   if (findProof(group)) return proof
-  // }
-  //
-  // See if each row,number has only one unproven col
-  // for each row {
-  //   for each number {
-  //     group = []
-  //     for each col {
-  //       group.push_back({{row,col},number})
-  //     }
-  //     if (findProof(group)) return proof
-  //   }
-  // }
-  //
-  // See if each col,number has only one unproven row
-  // for each col {
-  //   for each number {
-  //     group = []
-  //     for each row {
-  //       group.push_back({{row,col},number})
-  //     }
-  //     if (findProof(group)) return proof
-  //   }
-  // }
-  //
-  // See if each region,number has only one unproven row
-  // for each region {
-  //   for each number {
-  //     group = []
-  //     for each region_cell(region) {
-  //       group.push_back({region_cell(region),number})
-  //     }
-  //     if (findProof(group)) return proof
-  //   }
-  // }
-}
-#endif
-
-
-#if 0
-static void
-  runDeepeningSolver(const Puzzle &/*puzzle*/,Board &/*board*/)
-{
-  // We solve by finding cells we can fill one at a time.
-  // For each cell we fill, we try to find the minimum proof that
-  // the assignment is correct.
-
-  int max_proof_length = 1;
-
-  for (;;) {
-    PositiveProofFinderResult result = findPositiveProof(max_proof_length)
-
-    if (result.proof_was_found) {
-      board[result.found_cell] = result.found_number;
-      full_proof += result.proof;
-      max_proof_length = 1;
-    }
-    else {
-      ++max_proof_length;
-    }
-  }
-
-  // It seems clear that we should go through each cell, see which
-  // numbers work, and if there is only one number that works fill it in.
-
-  // If there are no cells with a single option, do we then try the
-  // cells with two options?
-
-  // It seems like the main thing we are trying to do is prove that
-  // a board isn't valid.  To do that, we have to find a cell that
-  // has no valid options.
-
-  // So we can do a level-1 check on each cell.  If a level-1 check
-  // doesn't fill any cells, then we could look for cells with two
-  // level-1 possibilities, and see how many level-2 possibilities it has.
-
-  // The main thing is we have a trade-off between going deeper on one
-  // cell or trying more cells.
-
-  // If a board is valid, then we're going to have to go through
-  // every cell anyway.  If the board isn't valid then it would be
-  // best to find that quickly.
-
-  // The top-level knowledge is the most valuable.
-  // Which cells are filled.
-  // The possible values for the cells.
-  // Can we remember anything else?
-  // The possible values for other cells if we use a particular number
-  // for a cell?
-
-  // It would be nice to have output like this:
-  // Cell 0,0 can only be 4:
-  //   Cell 0,0 can't be 2 because 2 is already in row 0
-  //   Cell 0,0 can't be 3 because if we make it 3 then
-  //    Cell 0,1 can't be 1 because there is already a 1 in row 0
-  //    Cell 0,1 can't be 2 because there is already a 2 in row 0
-  //    Cell 0,1 can't be 3 because there is already a 3 in column 0
-  //    Cell 0,1 can't be 4 because if we made it 4 then
-  //      ...
-  //    ...
-  //   Cell 0,0 can't be 5 because if we make it 5 then
-  //    ...
-  //   ...
-
-  // In other words, the output would give us a minimal proof of the solution.
-  // We find a cell which has the smallest proof that is is a certain number
-  // and fill it.
-  // That means we are looking for proofs of a certain length.
-  // We try to find proofs that are length n, and if that doesn't work,
-  // then we look for proofs of length n+1.
-  // The elements of the proof are statements of conflicts, which implies
-  // that the length of the proof is the number of conflicts.  That
-  // means that we can count the number of conflicts to determine when to
-  // stop.
-
-  // So we go through each cell and see if we can prove it must have
-  // a certain number in n steps.  If not, we try the next cell.
-  // Also, we could try rows, columns, and regions.
-  //   1 can only go in column 5 of row 0
-  //     1 can't go in column 0 of row 0:
-  //       ...
-  //     1 can't go in column 1 of row 0:
-  //       ...
-  //     ...
-
-  // We go to a cell and see if we can prove it can't be a certain number
-  // in n steps.  If we prove it in k steps, then we reduce n by k.
-  // If we eliminate all but one before n gets to 0, then we've proven it;
-  // we fill and continue.  If n gets to 0, then we reset n and go to the next
-  // possibility.
-  // For each number we try, if there isn't an immediate conflict, then
-  // we go deeper.
-  // As soon as we find two numbers that we can't prove are invalid, then we
-  // don't need to try this cell any more, since it isn't going to
-  // contribute to the proof.
-
-  // This approach seems right.  We are avoiding investigating anything
-  // too deeply.  We stop going too deep because the deeper we go, the
-  // more conflicts we need to make the proof.  We avoid trying too many
-  // options at any particular depth because if we don't look very
-  // deeply, then we easily find more than one option for a cell, which
-  // lets us avoid looking any further.  So our depth limit is helping
-  // us in two different ways.
-
-  // Increasing the depth limit by 1 each time probably won't be efficient
-  // enough, but we can try doubling it.  We won't get a minimal proof,
-  // but it should then be within a factor of 2 of minimal (maybe?).
-}
-#endif
-
-
-#if 0
-static void testDeepeningSolver()
-{
-  Board board(test_board_1);
-  StandardPuzzle puzzle;
-  runDeepeningSolver(puzzle,board);
-  Checker checker(board,/*show_violations*/false);
-  assert(checker.checkIsSolved());
-}
-#endif
-
-
-#if 0
 static void
   solveWithSumConstraints(
     Board &board,
@@ -2553,7 +1691,7 @@ static void
 
 static void testUniqueness()
 {
-  Board board(test_board_1);
+  Board board(testBoard1());
   board[0][2] = '1';
   assert(!StandardPuzzle().boardIsValid(board));
 }
@@ -2716,7 +1854,7 @@ static void testContains()
 
 static void testWorksGrid()
 {
-  Board board = test_board_4;
+  Board board = testBoard4();
   WorksGrid works_grid = makePuzzleWorksGrid(board,StandardPuzzle());
   {
     IndexPair cell = {0,5};
@@ -2758,7 +1896,7 @@ static void testWorksGrid()
 
 static void testWorksSolver()
 {
-  Board board = test_board_4;
+  Board board = testBoard4();
   StandardPuzzle puzzle;
   WorksSolver solver(board,&puzzle);
   solver.handlePairs();
@@ -2984,7 +2122,7 @@ static void testCheckerWithSums()
     };
 
     Board board(board_state);
-    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
     bool sums_are_satisified =
       boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(sums_are_satisified);
@@ -3004,7 +2142,7 @@ static void testCheckerWithSums()
     };
 
     Board board(board_state);
-    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
     bool sums_are_satisified =
       boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(!sums_are_satisified);
@@ -3024,7 +2162,7 @@ static void testCheckerWithSums()
     };
 
     Board board(board_state);
-    SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+    SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
     bool sums_are_satisified =
       boardSumConstraintsAreSatisfied(board,sum_constraints);
     assert(!sums_are_satisified);
@@ -3034,7 +2172,7 @@ static void testCheckerWithSums()
 
 static void testCellNumbersMustBeDistinctInArea()
 {
-  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
 
   struct {
     const IndexPair cell;
@@ -3076,8 +2214,8 @@ static void testDistinctCellNumbers()
 
 static void testPossibleNumbersInSumConstraint()
 {
-  const Board board(test_board_9);
-  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const Board board(testBoard9());
+  const SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
   {
     // This is a case where the numbers have to be distinct
     const SumConstraint &sum_constraint =
@@ -3100,8 +2238,8 @@ static void testPossibleNumbersInSumConstraint()
 
 static void testSumConstraintIsSatisifiedByWorks()
 {
-  const Board board(test_board_9);
-  const SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  const Board board(testBoard9());
+  const SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
   const SumPuzzle puzzle(&sum_constraints);
   const WorksGrid initial_works_grid = makePuzzleWorksGrid(board,puzzle);
 
@@ -3133,8 +2271,8 @@ static void testSumConstraintIsSatisifiedByWorks()
 
 static void testCellValuesThatWorkWithSums()
 {
-  Board board(test_board_9);
-  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  Board board(testBoard9());
+  SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
 
   SumPuzzle puzzle(&sum_constraints);
   Numbers numbers_that_work =
@@ -3147,8 +2285,8 @@ static void testCellValuesThatWorkWithSums()
 
 static void testBuildWorksGridWithSums()
 {
-  Board board(test_board_9);
-  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  Board board(testBoard9());
+  SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
   SumPuzzle puzzle(&sum_constraints);
   WorksGrid works_grid = makePuzzleWorksGrid(board,puzzle);
   vector<char> expected_numbers = {'1','2'};
@@ -3218,8 +2356,8 @@ static void
 
 static void testReducedWorksBySums()
 {
-  Board board(test_board_9);
-  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  Board board(testBoard9());
+  SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
   SumPuzzle puzzle(&sum_constraints);
   WorksGrid works = makePuzzleWorksGrid(board,puzzle);
   assert(sumConstraintsAreSatisfiedByWorks(sum_constraints,works));
@@ -3242,8 +2380,8 @@ static void testReducedWorksBySums()
 
 static void testFillSingles()
 {
-  Board board(test_board_9);
-  SumConstraints sum_constraints = makeSumConstraints(test_sum_spec_9);
+  Board board(testBoard9());
+  SumConstraints sum_constraints = makeSumConstraints(testSumSpec9());
   SumPuzzle puzzle(&sum_constraints);
   WorksGrid works = makePuzzleWorksGrid(board,puzzle);
   works = reducedWorksBySums(board,works,sum_constraints);
@@ -3281,20 +2419,19 @@ static void runTests()
   testReducedWorksBySums();
   testFillSingles();
 
-  testSolvingAPuzzle(test_board_1,/*show*/false);
-  testSolvingAPuzzle(test_board_2,/*show*/false);
-  testSolvingAPuzzle(test_board_3,/*show*/false);
-  testSolvingAPuzzle(test_board_4,/*show*/false);
-  testSolvingAPuzzle(test_board_5,/*show*/false);
-  testSolvingAPuzzle(test_board_6,/*show*/false);
-  testSolvingAPuzzle(test_board_7,/*show*/false);
-  testSolvingAPuzzle(test_board_8,/*show*/false);
+  testSolvingAPuzzle(testBoard1(),/*show*/false);
+  testSolvingAPuzzle(testBoard2(),/*show*/false);
+  testSolvingAPuzzle(testBoard3(),/*show*/false);
+  testSolvingAPuzzle(testBoard4(),/*show*/false);
+  testSolvingAPuzzle(testBoard5(),/*show*/false);
+  testSolvingAPuzzle(testBoard6(),/*show*/false);
+  testSolvingAPuzzle(testBoard7(),/*show*/false);
+  testSolvingAPuzzle(testBoard8(),/*show*/false);
 
-  // testDeepeningSolver();
-  // testSolvingASumPuzzle(test_board_9,test_sum_spec_9,/*show*/false);
+  // testSolvingASumPuzzle(testBoard9(),testSumSpec9(),/*show*/false);
 
   // Try using the standard solver
-  // testSolvingASumPuzzle2(test_board_9,test_sum_spec_9);
+  // testSolvingASumPuzzle2(testBoard9(),testSumSpec9());
 }
 
 
