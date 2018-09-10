@@ -114,26 +114,11 @@ class Grid {
   public:
     enum {size = grid_size};
 
-    struct CellRef {
-      Grid &grid;
-      Index row, column;
-
-      operator CellValue &() const { return grid.cell(row,column); }
-
-      CellValue &value() const { return grid.cell(row,column); }
-
-      CellRef operator=(CellValue value)
-      {
-        grid.setCell(row,column,value);
-        return *this;
-      }
-    };
-
     struct RowRef {
       Grid &grid;
       Index row;
 
-      CellRef operator[](Index column) { return {grid,row,column}; }
+      CellValue& operator[](Index column) { return grid.cell(row,column); }
     };
 
     struct ConstRowRef {
@@ -159,7 +144,11 @@ class Grid {
     Grid(CellValue v) : cells(size*size,v) { }
     RowRef operator[](Index index) { return {*this,index}; }
     ConstRowRef operator[](Index index) const { return {*this,index}; }
-    CellRef operator[](IndexPair cell) { return {*this,cell.row,cell.col}; }
+
+    CellValue& operator[](IndexPair cell)
+    {
+      return this->cell(cell.row,cell.col);
+    }
 
     const CellValue &operator[](IndexPair cell) const
     {

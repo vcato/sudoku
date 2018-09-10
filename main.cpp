@@ -59,12 +59,6 @@ namespace {
 }
 
 
-static bool isValidCellValue(const IndexPair &)
-{
-  return true;
-}
-
-
 namespace {
   struct IndexPairUnionFind {
     Grid<IndexPair> parents;
@@ -1617,7 +1611,7 @@ static WorksGrid
         assert(numbers.size()==1);
         new_works[row][col] = numbers;
       }
-      assert(!new_works[row][col].value().empty());
+      assert(!new_works[row][col].empty());
     }
   }
 
@@ -2269,7 +2263,7 @@ static void testBuildWorksGridWithSums()
   SumPuzzle puzzle(&sum_constraints);
   WorksGrid works_grid = makePuzzleWorksGrid(board,puzzle);
   vector<char> expected_numbers = {'1','2'};
-  assert(works_grid[2][0].value()==expected_numbers);
+  assert(works_grid[2][0]==expected_numbers);
 }
 
 
