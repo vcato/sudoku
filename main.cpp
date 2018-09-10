@@ -45,13 +45,6 @@ static const T& elementWhere(const vector<T> &v,const Predicate &f)
 }
 
 
-static ostream& operator<<(ostream& stream,const IndexPair &cell)
-{
-  stream << "(" << cell.row << "," << cell.col << ")";
-  return stream;
-}
-
-
 namespace {
   struct Area {
     vector<IndexPair> cell_indices;
@@ -543,12 +536,6 @@ template <typename Func>
 static void removeIf(Numbers &values,const Func &f)
 {
   values.erase(std::remove_if(values.begin(),values.end(),f),values.end());
-}
-
-
-static Index regionOf(IndexPair cell)
-{
-  return (cell.row/3)*3 + cell.col/3;
 }
 
 

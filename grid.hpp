@@ -227,4 +227,17 @@ class Grid {
 };
 
 
+inline Index regionOf(IndexPair cell)
+{
+  return (cell.row/3)*3 + cell.col/3;
+}
+
+
+inline std::ostream& operator<<(std::ostream& stream,const IndexPair &cell)
+{
+  stream << "(" << cell.row << "," << cell.col << ")";
+  return stream;
+}
+
+
 #endif /* GRID_HPP_ */

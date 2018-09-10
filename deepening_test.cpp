@@ -2,95 +2,340 @@
 #include "testboards.hpp"
 #include "standardpuzzle.hpp"
 
+#define USE_PROVE_BOARD_IS_UNSOLVABLE 0
+#define USE_PROVE_ASSIGNMENT_IS_INVALID2 0
+
+
+using std::cerr;
+
 
 namespace {
-struct MaybeProof;
+struct NegativeAssignmentProof;
 }
 
+
+// A group represents a set of assignments which could conflict.
+// All the numbers in a cell.
+// All the columns for a row and a number.
+// All the rows for a column and a number.
+// All the cells for a region and a number.
+namespace {
+struct Group {
+  enum class Type {
+    numbers_for_a_cell,
+    cols_for_a_row_and_number,
+    rows_for_a_col_and_number,
+    cells_for_a_region_and_number
+  };
+
+  const Type type;
+
+  using Cell = IndexPair;
+
+  struct RowAndNumber {
+    Index row;
+    Number number;
+  };
+
+  struct ColAndNumber {
+    Index col;
+    Number number;
+  };
+
+  struct RegionAndNumber {
+    Index region;
+    Number number;
+  };
+
+  union {
+    Cell cell;
+    RowAndNumber row_and_number;
+    ColAndNumber col_and_number;
+    RegionAndNumber region_and_number;
+  };
+};
+}
+
+
+namespace {
+template <typename T>
+struct Optional {
+  const bool has_value;
+
+  Optional()
+  : has_value(false)
+  {
+  }
+
+  Optional(T arg)
+  : has_value(true)
+  {
+    new (&value) T(std::move(arg));
+  }
+
+  ~Optional()
+  {
+    if (!has_value) {
+      return;
+    }
+
+    value.~T();
+  }
+
+  explicit operator bool() const
+  {
+    return has_value;
+  }
+
+  const T& operator*() const
+  {
+    assert(has_value);
+    return value;
+  }
+
+  union {
+    T value;
+  };
+};
+}
+
+
 using std::vector;
-using CellProofs = vector<MaybeProof>;
+using CellProofs = vector<Optional<NegativeAssignmentProof>>;
 
 
+namespace {
+struct ProofStep {
+  enum class Type {
+    number_already_exists_in_row
+  };
+
+  const Type type;
+  const Index index;
+};
+}
+
+
+namespace {
+struct Assignment {
+  const IndexPair cell;
+  const Number number;
+
+  bool operator==(const Assignment &arg) const
+  {
+    return cell==arg.cell && number==arg.number;
+  }
+};
+}
+
+
+namespace {
+struct NegativeAssignmentProof {
+  enum class Type {
+    number_already_exists_in_row,
+    number_already_exists_in_col,
+    number_already_exists_in_region,
+    assignment_would_create_an_invalid_board
+  };
+
+  NegativeAssignmentProof(const Assignment &assignment_arg,Type type_arg)
+  : assignment(assignment_arg),
+    type(type_arg)
+  {
+  }
+
+  bool operator==(const NegativeAssignmentProof &arg) const
+  {
+    return assignment==arg.assignment && type==arg.type;
+  }
+
+  const Assignment assignment;
+  const Type type;
+};
+}
+
+
+namespace {
+struct PositiveAssignmentProof {
+  enum class Type {
+    only_valid_number_in_cell,
+    only_valid_col_in_row,
+    only_valid_row_in_col,
+    only_valid_cell_in_region
+  };
+
+  const Assignment assignment;
+  const Type type;
+  vector<NegativeAssignmentProof> steps;
+};
+}
+
+
+namespace {
+struct UnsolvableProof {
+  enum class Type {
+    no_valid_number_for_cell,
+    no_valid_col_for_number_in_row,
+    no_valid_row_for_number_in_col,
+    no_valid_cell_for_number_in_region
+  };
+
+  const Type type;
+  const vector<NegativeAssignmentProof> supporting_proofs;
+};
+}
 
 namespace {
 struct Proof {
+  vector<ProofStep> steps;
+  size_t size() const { return steps.size(); }
+
+#if 0
+  void addInvalidAssignment(Assignment,ProofStep::Type type)
+  {
+    ProofStep step{ProofStep::Type::number_already_exists_in_row,row};
+    steps.push_back(step);
+  }
+#endif
 };
 }
 
 
 #if 0
-static void
-  findNegativeProof(const Board &board,Index row,Index col,Number number)
+static Optional<Proof> noProof()
 {
+  return {};
 }
 #endif
 
 
-#if 0
-static void testBoardIsInvalidProof()
+static vector<IndexPair> rowCells(Index row)
 {
-  Proof proof = findBoardIsInvalidProof(board);
+  vector<IndexPair> result;
+  result.reserve(grid_size);
 
-  // Prove one of
-  // * a cell has no valid numbers
-  // * a number has no place in a row
-  // * a number has no place in a column
-  // * a number has no place in a region
+  for (Index col : irange(0,grid_size)) {
+    result.push_back(IndexPair(row,col));
+  }
+
+  return result;
 }
-#endif
 
 
-#if 0
-static MaybeProof
-  proveAssignmentIsInvalid(const Assignment &assignment,int max_proof_steps)
+static vector<IndexPair> colCells(Index col)
+{
+  vector<IndexPair> result;
+  result.reserve(grid_size);
+
+  for (Index row : irange(0,grid_size)) {
+    result.push_back(IndexPair(row,col));
+  }
+
+  return result;
+}
+
+
+static vector<IndexPair> regionCells(Index region)
+{
+  vector<IndexPair> result;
+  result.reserve(grid_size);
+
+  for (Index cell : irange(0,grid_size)) {
+    result.push_back(regionCell(region,cell));
+  }
+
+  return result;
+}
+
+
+static bool
+  numberExistsInCells(
+    Number number,
+    const vector<IndexPair> &cells,
+    const Board &board
+  )
+{
+  for (auto cell : cells) {
+    if (board[cell]==number) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+
+static Optional<NegativeAssignmentProof>
+  proveAssignmentIsInvalid(
+    const Assignment &assignment,
+    int max_proof_steps,
+    Board &board
+  )
 {
   if (max_proof_steps==0) {
-    return noProof();
+    assert(false);
+    return Optional<NegativeAssignmentProof>();
   }
 
   assert(max_proof_steps>0);
-  Number n = assignment.number;
+  const IndexPair &cell = assignment.cell;
+  Index row = cell.row;
+  Index col = cell.col;
+  Number number = assignment.number;
 
-  if (numberExists(n,rowCells(row))) {
-    Proof proof;
-    proof.addNumberAlreadyInRowStep();
-    return proof;
+  if (numberExistsInCells(number,rowCells(row),board)) {
+    return
+      NegativeAssignmentProof(
+        assignment,
+        NegativeAssignmentProof::Type::number_already_exists_in_row
+      );
   }
 
-  if (numberExists(n,colCells(col))) {
-    Proof proof;
-    proof.addNumberAlreadyInColStep();
-    return proof;
+  if (numberExistsInCells(number,colCells(col),board)) {
+    return
+      NegativeAssignmentProof(
+        assignment,
+        NegativeAssignmentProof::Type::number_already_exists_in_col
+      );
   }
 
-  if (numberExistsInRegion(n,regionCells(regionOf(cell)))) {
-    Proof proof;
-    proof.addNumberAlreadyInColStep();
-    return proof;
+  if (numberExistsInCells(number,regionCells(regionOf(cell)),board)) {
+    return
+      NegativeAssignmentProof(
+        assignment,
+        NegativeAssignmentProof::Type::number_already_exists_in_region
+      );
   }
 
-  board[cell] = n;
-  MaybeProof maybe_proof = proveBoardIsInvalid(board,max_proof_steps);
+#if USE_PROVE_ASSIGNMENT_IS_INVALID2
+  cerr << "cell: " << cell << "\n";
+  cerr << "number: " << number << "\n";
+  assert(false);
+  board[cell] = number;
+  Optional<Proof> maybe_proof = proveBoardIsUnsolvable(board,max_proof_steps);
   board[cell].setEmpty();
 
   if (maybe_proof) {
+    assert(false);
     Proof proof;
     proof.addNumberMakesBoardInvalid(*maybe_proof):
     return proof;
   }
 
   return noProof();
-}
+#else
+  assert(false);
 #endif
+}
 
 #if 0
-static MaybeProof
+static Optional<Proof>
   hasNoValidAssignments(const vector<Assignments> &,int max_proof_steps)
 {
   int n_remaining_steps = max_proof_steps;
 
   for (auto &assgnment : assignments) {
-    MaybeProof maybe_assignment_proof =
+    Optional<Proof> maybe_assignment_proof =
       proveAssignmentIsInvalid(assignment,n_remaining_steps);
 
     if (!maybe_assignment_proof) {
@@ -118,39 +363,80 @@ static vector<Assignment> rowAssignments(Index row,Number number)
 #endif
 
 
-#if 0
-static bool proveBoardIsInvalid(Board &board,const Puzzle &puzzle,int depth)
+#if USE_PROVE_BOARD_IS_UNSOLVABLE
+static Optional<UnsolvableProof>
+  proveGroupIsUnsolvable(Group group,const NegativeProofs &negative_proofs)
 {
-  if (depth==0) {
-    return puzzle.boardIsValid(board);
-  }
+  vector<Assignment> assignments = groupAssignments(group);
 
-  // See if the count of valid numbers for a cell is zero.
+  if (hasNoValidAssignments(assignments)) {
+    assert(false);
+    return
+      UnsolvableProof{
+        group,
+        assignmentProofs(assignments,negative_proofs)
+      };
+  }
+}
+#endif
+
+
+#if 0
+static void forEachGroup()
+{
   forEachEmptyCell(board,[&](IndexPair cell){
-    Proof proof;
-
-    if (hasNoValidNumbers(board,cell,proof,max_proof_length)) {
-      returned_proof = proof;
-      return true;
-    }
+    f(cellGroup(cell));
   }
 
-  // See if the count of valid columns for a number in a row is zero.
   forEachRow(
     forEachNumber(
-      if (hasNoValidColumns(board,row,number,max_proof_length)) {
-        returned_proof = proof;
-      }
+      f(rowGroup(row,number))
     )
   );
 
-  // See if the count of valid rows for a number in a column is zero.
-  assert(false);
-  
-  // See if the count of valid cells for a number in a region is zero.
-  assert(false);
+  forEachCol(
+    forEachNumber(
+      f(colGroup(col,number));
+    )
+  )
 
-  return true;
+  forEachRegion(
+    forEachNumber(
+      f(regionGroup(region,number));
+    )
+  )
+}
+#endif
+
+
+#if 0
+static Optional<UnsolvableProof>
+  proveBoardIsUnsolvable(Board &board,const Puzzle &puzzle,int depth)
+{
+  // This should only be called if there are no obvious conflicts.
+  assert(puzzle.boardIsValid(board));
+
+  // To prove that a board is unsolvable, we have to show that
+  // either there is no number that can go in a cell,
+  // no place a number can go in a row, no place a number can go
+  // in a column, or no place a number can go in a region.
+
+  if (depth==0) {
+    // No way to prove it if we can't have any evidence.
+    assert(false);
+    return {};
+  }
+
+  // First, we need to get our negative proofs for each empty cell.
+  Grid<CellProofs> negative_proofs = makeNegativeProofs():
+
+  forEachGroup([](Group group){
+    Optional<UnsolvableProof> maybe_proof =
+      proveGroupIsUnsolvable(group,negative_proofs);
+    if (maybe_proof) {
+      return maybe_proof;
+    }
+  }):
 }
 #endif
 
@@ -215,27 +501,14 @@ struct MaybeProvenAssignment {
 }
 
 
-namespace {
-struct MaybeProof {
-};
-}
-
-
-#if 0
-static MaybeProof noProof()
-{
-  return MaybeProof{};
-}
-#endif
-
-
 #if 0
 static CellProofs noCellProofs()
 {
-  return vector<MaybeProof>(grid_size,noProof());
+  return vector<Optional<Proof>>(grid_size,noProof());
 }
 #endif
 
+// Need a function which will give us all the negative proofs
 
 #if 0
 static MaybeProvenAssignment
@@ -250,7 +523,7 @@ static MaybeProvenAssignment
 
   forEachEmptyCell(board,[&](Index row,Index col){
     forEachNumber([&](Number number){
-      proofs[{row,col}][number] = findNegativeProof(board,row,col,number);
+      proofs[{row,col}][number] = proveAssignmentIsInvalid(board,row,col,number);
     });
   });
 
@@ -259,7 +532,7 @@ static MaybeProvenAssignment
   //   if (board[cell].isEmpty()) {
   //     for each number {
   //       proofs[cell][number] =
-  //         findNegativeProof(cell,number,max_proof_length);
+  //         proveAssignmentIsInvalid(cell,number,max_proof_length);
   //     }
   //   }
   // }
@@ -440,15 +713,112 @@ static void testFindAnyPositiveProof()
 }
 #endif
 
-#if 0
-static void testFindNegativeProof()
-{
-  // Number alredy exists in row.
-  Board board(testBoard1());
-  Proof proof = findNegativeProof(board,/*row*/4,/*column*/0,'1');
-  assert(proof==numberAlreadyExistsInRow());
 
-  // If we put the number in the cell, then the board becomes Invalid.
+static void testOptional()
+{
+  {
+    Optional<int> v;
+    assert(!v);
+  }
+  {
+    Optional<int> v = 5;
+    assert(v);
+    assert(*v==5);
+  }
+}
+
+
+static void testRowCells()
+{
+  vector<IndexPair> result = rowCells(/*row*/1);
+  assert(result.size()==grid_size);
+  assert(result[0]==IndexPair(1,0));
+  assert(result[8]==IndexPair(1,8));
+}
+
+
+static void testNumberExistsInCells()
+{
+  Board board(testBoard1());
+  assert( numberExistsInCells('1',rowCells(/*row*/0),board));
+  assert(!numberExistsInCells('3',rowCells(/*row*/0),board));
+}
+
+
+static void
+  testProveAssignmentIsInvalidWith(
+    const BoardState &board_state,
+    const Assignment &assignment,
+    NegativeAssignmentProof::Type expected_type
+  )
+{
+  Board board(board_state);
+  Optional<NegativeAssignmentProof> maybe_proof =
+    proveAssignmentIsInvalid(
+      assignment,
+      /*max_proof_length*/1,
+      board
+    );
+  NegativeAssignmentProof
+    expected_proof(
+      assignment,
+      expected_type
+    );
+  assert(*maybe_proof==expected_proof);
+}
+
+
+static void testProveAssignmentIsInvalid()
+{
+  testProveAssignmentIsInvalidWith(
+    testBoard1(),
+    {{/*row*/4,/*col*/0},/*number*/'1'},
+    NegativeAssignmentProof::Type::number_already_exists_in_row
+  );
+
+  testProveAssignmentIsInvalidWith(
+    testBoard1(),
+    {{/*row*/0,/*col*/2},/*number*/'5'},
+    NegativeAssignmentProof::Type::number_already_exists_in_col
+  );
+
+  testProveAssignmentIsInvalidWith(
+    testBoard1(),
+    {{/*row*/2,/*col*/8},/*number*/'6'},
+    NegativeAssignmentProof::Type::number_already_exists_in_region
+  );
+}
+
+
+#if USE_PROVE_ASSIGNMENT_IS_INVALID2
+static void testProveAssignmentIsInvalid2()
+{
+  Board board(testBoard1());
+
+  forEachEmptyCell(board,[&](Index row,Index col){
+    forEachNumber([&](Number number){
+      Optional<NegativeAssignmentProof> maybe_proof =
+        proveAssignmentIsInvalid(
+          /*assignment*/{{row,col},number},
+          /*max_proof_length*/1,
+          board
+        );
+    });
+  });
+
+  // Need to find a case where we can't find a negative proof easily.
+}
+#endif
+
+
+#if USE_PROVE_BOARD_IS_UNSOLVABLE
+static void testProveBoardIsUnsolvable()
+{
+  StandardPuzzle puzzle;
+  Board board(testBoard1());
+  board[0][2] = '3';
+  Optional<UnsolvableProof> result = proveBoardIsUnsolvable(puzzle,board);
+  assert(false);
 }
 #endif
 
@@ -467,7 +837,16 @@ static void testDeepeningSolver()
 
 int main()
 {
+  testOptional();
+  testRowCells();
+  testNumberExistsInCells();
+  testProveAssignmentIsInvalid();
+#if USE_PROVE_BOARD_IS_UNSOLVABLE
+  testProveBoardIsUnsolvable();
+#endif
+#if USE_PROVE_ASSIGNMENT_IS_INVALID2
+  testProveAssignmentIsInvalid2();
+#endif
   // testFindAnyPositiveProof();
-  // testFindNegativeProof();
   // testDeepeningSolver();
 }
