@@ -196,3 +196,16 @@ struct Checker {
     return checkAllCellsAreFilled() && checkUniqueness();
   }
 };
+
+
+template <typename Func>
+void forEachEmptyCell(const Board &board,const Func &f)
+{
+  for (auto row : board.rowIndices()) {
+    for (auto col : board.columnIndices()) {
+      if (board.cellIsEmpty(row,col)) {
+        f(row,col);
+      }
+    }
+  }
+}

@@ -5,10 +5,10 @@
 #include <cassert>
 #include <iterator>
 #include <vector>
+#include "number.hpp"
 
 
 using Index = int;
-using Number = char;
 using Numbers = std::vector<Number>;
 
 

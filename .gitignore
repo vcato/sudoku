@@ -1,5 +1,6 @@
 *.o
 *.d
 *.pass
+.*.swp
 main
 deepening_test

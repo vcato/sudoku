@@ -11,6 +11,7 @@
 #include "puzzle.hpp"
 #include "standardpuzzle.hpp"
 
+
 using std::cerr;
 using std::cout;
 using std::vector;
@@ -279,19 +280,6 @@ static inline ostream& operator<<(ostream& stream,const Numbers &cell_values)
 }
 
 
-template <typename Func>
-static void forEachEmptyCell(const Board &board,const Func &f)
-{
-  for (auto row : board.rowIndices()) {
-    for (auto col : board.columnIndices()) {
-      if (board.cellIsEmpty(row,col)) {
-        f(row,col);
-      }
-    }
-  }
-}
-
-
 namespace {
   struct SumConstraint {
     Area area;
@@ -476,15 +464,6 @@ struct SumPuzzle : Puzzle {
     return boardWithSumConstraintsIsValid(board,sum_constraints);
   }
 };
-}
-
-
-template <typename Func>
-static void forEachNumber(const Func &f)
-{
-  for (Number value='1'; value<='9'; ++value) {
-    f(value);
-  }
 }
 
 

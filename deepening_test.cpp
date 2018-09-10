@@ -3,39 +3,152 @@
 #include "standardpuzzle.hpp"
 
 
+namespace {
+struct MaybeProof;
+}
+
+using std::vector;
+using CellProofs = vector<MaybeProof>;
+
+
+
+namespace {
+struct Proof {
+};
+}
+
+
 #if 0
-static bool deepBoardIsValid(Board &board,const Puzzle &puzzle,int depth)
+static void
+  findNegativeProof(const Board &board,Index row,Index col,Number number)
+{
+}
+#endif
+
+
+#if 0
+static void testBoardIsInvalidProof()
+{
+  Proof proof = findBoardIsInvalidProof(board);
+
+  // Prove one of
+  // * a cell has no valid numbers
+  // * a number has no place in a row
+  // * a number has no place in a column
+  // * a number has no place in a region
+}
+#endif
+
+
+#if 0
+static MaybeProof
+  proveAssignmentIsInvalid(const Assignment &assignment,int max_proof_steps)
+{
+  if (max_proof_steps==0) {
+    return noProof();
+  }
+
+  assert(max_proof_steps>0);
+  Number n = assignment.number;
+
+  if (numberExists(n,rowCells(row))) {
+    Proof proof;
+    proof.addNumberAlreadyInRowStep();
+    return proof;
+  }
+
+  if (numberExists(n,colCells(col))) {
+    Proof proof;
+    proof.addNumberAlreadyInColStep();
+    return proof;
+  }
+
+  if (numberExistsInRegion(n,regionCells(regionOf(cell)))) {
+    Proof proof;
+    proof.addNumberAlreadyInColStep();
+    return proof;
+  }
+
+  board[cell] = n;
+  MaybeProof maybe_proof = proveBoardIsInvalid(board,max_proof_steps);
+  board[cell].setEmpty();
+
+  if (maybe_proof) {
+    Proof proof;
+    proof.addNumberMakesBoardInvalid(*maybe_proof):
+    return proof;
+  }
+
+  return noProof();
+}
+#endif
+
+#if 0
+static MaybeProof
+  hasNoValidAssignments(const vector<Assignments> &,int max_proof_steps)
+{
+  int n_remaining_steps = max_proof_steps;
+
+  for (auto &assgnment : assignments) {
+    MaybeProof maybe_assignment_proof =
+      proveAssignmentIsInvalid(assignment,n_remaining_steps);
+
+    if (!maybe_assignment_proof) {
+      return false;
+    }
+
+    proof += *maybe_assignment_proof;
+    n_remaining_steps -= maybe_assignment_proof->nSteps();
+  }
+
+  return proof;
+}
+#endif
+
+
+#if 0
+static vector<Assignment> cellAssignments(IndexPair cell)
+{
+}
+
+
+static vector<Assignment> rowAssignments(Index row,Number number)
+{
+}
+#endif
+
+
+#if 0
+static bool proveBoardIsInvalid(Board &board,const Puzzle &puzzle,int depth)
 {
   if (depth==0) {
     return puzzle.boardIsValid(board);
   }
 
-  forEachEmptyCell(board,[](IndexPair cell){
-    Numbers valid_numbers;
+  // See if the count of valid numbers for a cell is zero.
+  forEachEmptyCell(board,[&](IndexPair cell){
+    Proof proof;
 
-    forEachNumber([](Number n){
-      board[cell] = n;
-      bool is_valid = deepBoardIsValid(board,puzzle,depth-1);
-      board[cell] = ' ';
-      if (is_valid) {
-        valid_numbers.push_back(n);
+    if (hasNoValidNumbers(board,cell,proof,max_proof_length)) {
+      returned_proof = proof;
+      return true;
+    }
+  }
+
+  // See if the count of valid columns for a number in a row is zero.
+  forEachRow(
+    forEachNumber(
+      if (hasNoValidColumns(board,row,number,max_proof_length)) {
+        returned_proof = proof;
       }
-    }
+    )
+  );
 
-    if (valid_numbers.empty()) {
-      return false;
-    }
-
-    if (valid_numbers.size()==1) {
-      board[cell] = valid_numbers.front();
-      bool is_valid = deepBoardIsValid(board,puzzle,depth);
-      board[cell] = ' ';
-
-      if (!is_valid) {
-        return false;
-      }
-    }
-  });
+  // See if the count of valid rows for a number in a column is zero.
+  assert(false);
+  
+  // See if the count of valid cells for a number in a region is zero.
+  assert(false);
 
   return true;
 }
@@ -92,24 +205,56 @@ static bool findGroupPositiveProof(group,proofs)
 #endif
 
 
-#if 0
 namespace {
-struct MaybeProvedAssignment {
-  bool has_value;
-  IndexPair cell;
-  Number number;
-  Proof proof;
+struct MaybeProvenAssignment {
+  const bool has_value;
+  const IndexPair cell;
+  const Number number;
+  const Proof proof;
 };
 }
 
 
-static MaybeProvedAssignment findAnyPositiveProof(int max_proof_length)
+namespace {
+struct MaybeProof {
+};
+}
+
+
+#if 0
+static MaybeProof noProof()
+{
+  return MaybeProof{};
+}
+#endif
+
+
+#if 0
+static CellProofs noCellProofs()
+{
+  return vector<MaybeProof>(grid_size,noProof());
+}
+#endif
+
+
+#if 0
+static MaybeProvenAssignment
+  findAnyPositiveProof(Board &board,int /*max_proof_length*/)
 {
   // We try to make some forward progress, finding a proof that a certain
   // number must go in a certain cell.
 
   // Find negative proofs for each cell and number
 
+  Grid<CellProofs> proofs(noCellProofs());
+
+  forEachEmptyCell(board,[&](Index row,Index col){
+    forEachNumber([&](Number number){
+      proofs[{row,col}][number] = findNegativeProof(board,row,col,number);
+    });
+  });
+
+  assert(false);
   // for each cell {
   //   if (board[cell].isEmpty()) {
   //     for each number {
@@ -284,6 +429,31 @@ static void
 
 
 #if 0
+static void testFindAnyPositiveProof()
+{
+  Board board(testBoard1());
+  // We should not be able to find a proof in one step.
+  MaybeProvenAssignment maybe_assignment =
+    findAnyPositiveProof(board,/*max_proof_length*/1);
+
+  assert(!maybe_assignment.has_value);
+}
+#endif
+
+#if 0
+static void testFindNegativeProof()
+{
+  // Number alredy exists in row.
+  Board board(testBoard1());
+  Proof proof = findNegativeProof(board,/*row*/4,/*column*/0,'1');
+  assert(proof==numberAlreadyExistsInRow());
+
+  // If we put the number in the cell, then the board becomes Invalid.
+}
+#endif
+
+
+#if 0
 static void testDeepeningSolver()
 {
   Board board(testBoard1());
@@ -297,5 +467,7 @@ static void testDeepeningSolver()
 
 int main()
 {
+  // testFindAnyPositiveProof();
+  // testFindNegativeProof();
   // testDeepeningSolver();
 }
