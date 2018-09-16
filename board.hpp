@@ -21,6 +21,11 @@ struct Board : Grid<Number> {
     {
       return (*this)[row][col]==' ';
     }
+
+    void setCellEmpty(Index row,Index col)
+    {
+      (*this)[row][col] = ' ';
+    }
 };
 
 

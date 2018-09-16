@@ -1,119 +1,20 @@
 #include "board.hpp"
 #include "testboards.hpp"
 #include "standardpuzzle.hpp"
-
-#define USE_PROVE_BOARD_IS_UNSOLVABLE 0
-#define USE_PROVE_ASSIGNMENT_IS_INVALID2 0
-
-
-using std::cerr;
+#include "optional.hpp"
 
 
 namespace {
+struct CellProofs;
+struct Assignment;
 struct NegativeAssignmentProof;
+struct UnsolvableProof;
 }
-
-
-// A group represents a set of assignments which could conflict.
-// All the numbers in a cell.
-// All the columns for a row and a number.
-// All the rows for a column and a number.
-// All the cells for a region and a number.
-namespace {
-struct Group {
-  enum class Type {
-    numbers_for_a_cell,
-    cols_for_a_row_and_number,
-    rows_for_a_col_and_number,
-    cells_for_a_region_and_number
-  };
-
-  const Type type;
-
-  using Cell = IndexPair;
-
-  struct RowAndNumber {
-    Index row;
-    Number number;
-  };
-
-  struct ColAndNumber {
-    Index col;
-    Number number;
-  };
-
-  struct RegionAndNumber {
-    Index region;
-    Number number;
-  };
-
-  union {
-    Cell cell;
-    RowAndNumber row_and_number;
-    ColAndNumber col_and_number;
-    RegionAndNumber region_and_number;
-  };
-};
-}
-
-
-namespace {
-template <typename T>
-struct Optional {
-  const bool has_value;
-
-  Optional()
-  : has_value(false)
-  {
-  }
-
-  Optional(T arg)
-  : has_value(true)
-  {
-    new (&value) T(std::move(arg));
-  }
-
-  ~Optional()
-  {
-    if (!has_value) {
-      return;
-    }
-
-    value.~T();
-  }
-
-  explicit operator bool() const
-  {
-    return has_value;
-  }
-
-  const T& operator*() const
-  {
-    assert(has_value);
-    return value;
-  }
-
-  union {
-    T value;
-  };
-};
-}
-
 
 using std::vector;
-using CellProofs = vector<Optional<NegativeAssignmentProof>>;
-
-
-namespace {
-struct ProofStep {
-  enum class Type {
-    number_already_exists_in_row
-  };
-
-  const Type type;
-  const Index index;
-};
-}
+using NegativeProofs = Grid<CellProofs>;
+using std::cerr;
+using Assignments = vector<Assignment>;
 
 
 namespace {
@@ -129,19 +30,200 @@ struct Assignment {
 }
 
 
+// A group represents a set of assignments which could conflict.
+// All the numbers in a cell.
+// All the columns for a row and a number.
+// All the rows for a column and a number.
+// All the cells for a region and a number.
+namespace {
+class Group {
+  public:
+    static Group makeCell(IndexPair cell)
+    {
+      Group result(Type::numbers_for_a_cell);
+      new (&result.member.cell)IndexPair(cell);
+      return result;
+    }
+
+    static Group makeRow(Index row,Number number)
+    {
+      Group result(Type::cols_for_a_row_and_number);
+      new (&result.member.row_and_number)RowAndNumber{row,number};
+      return result;
+    }
+
+    static Group makeCol(Index col,Number number)
+    {
+      Group result(Type::rows_for_a_col_and_number);
+      new (&result.member.col_and_number)ColAndNumber{col,number};
+      return result;
+    }
+
+    static Group makeRegion(Index region,Number number)
+    {
+      Group result(Type::cells_for_a_region_and_number);
+      new (&result.member.region_and_number)RegionAndNumber{region,number};
+      return result;
+    }
+
+    ~Group()
+    {
+      switch (type) {
+        case Type::numbers_for_a_cell:
+        {
+          destroyObject(member.cell);
+          break;
+        }
+
+        case Type::cols_for_a_row_and_number:
+        {
+          destroyObject(member.row_and_number);
+          break;
+        }
+
+        case Type::rows_for_a_col_and_number:
+        {
+          destroyObject(member.col_and_number);
+          break;
+        }
+
+        case Type::cells_for_a_region_and_number:
+        {
+          destroyObject(member.region_and_number);
+          break;
+        }
+      }
+    }
+
+    enum class Type {
+      numbers_for_a_cell,
+      cols_for_a_row_and_number,
+      rows_for_a_col_and_number,
+      cells_for_a_region_and_number
+    };
+
+    using Cell = IndexPair;
+
+    struct RowAndNumber {
+      Index row;
+      Number number;
+    };
+
+    struct ColAndNumber {
+      Index col;
+      Number number;
+    };
+
+    struct RegionAndNumber {
+      Index region;
+      Number number;
+    };
+
+    const Type type;
+
+    Cell cell() const
+    {
+      assert(type==Type::numbers_for_a_cell);
+      return member.cell;
+    }
+
+    RowAndNumber rowAndNumber() const
+    {
+      assert(type==Type::cols_for_a_row_and_number);
+      return member.row_and_number;
+    }
+
+    ColAndNumber colAndNumber() const
+    {
+      assert(type==Type::rows_for_a_col_and_number);
+      return member.col_and_number;
+    }
+
+    RegionAndNumber regionAndNumber() const
+    {
+      assert(type==Type::cells_for_a_region_and_number);
+      return member.region_and_number;
+    }
+
+  private:
+    union Member {
+      Member()
+      {
+      }
+
+      Cell cell;
+      RowAndNumber row_and_number;
+      ColAndNumber col_and_number;
+      RegionAndNumber region_and_number;
+    } member;
+
+    Group(Type type_arg)
+    : type(type_arg)
+    {
+    }
+};
+}
+
+
+namespace {
+struct UnsolvableProof {
+  Group group;
+  vector<NegativeAssignmentProof> supporting_proofs;
+};
+}
+
+
 namespace {
 struct NegativeAssignmentProof {
   enum class Type {
+    // Could possibly use a group here to condense the three
+    // "number_already_exists" types into a single one.
     number_already_exists_in_row,
     number_already_exists_in_col,
     number_already_exists_in_region,
-    assignment_would_create_an_invalid_board
+    assignment_would_create_an_unsolvable_board
   };
 
   NegativeAssignmentProof(const Assignment &assignment_arg,Type type_arg)
   : assignment(assignment_arg),
     type(type_arg)
   {
+  }
+
+  NegativeAssignmentProof(
+    const Assignment &assignment_arg,
+    UnsolvableProof proof
+  )
+  : assignment(assignment_arg),
+    type(Type::assignment_would_create_an_unsolvable_board),
+    maybe_unsolvable_proof(std::move(proof))
+  {
+  }
+
+  NegativeAssignmentProof(NegativeAssignmentProof &&arg) = default;
+  NegativeAssignmentProof(const NegativeAssignmentProof &arg) = default;
+
+  NegativeAssignmentProof &operator=(NegativeAssignmentProof &&)
+  {
+    // Why do we need this assignment?
+    assert(false);
+    return *this;
+  }
+
+  int nSteps() const
+  {
+    if (type!=Type::assignment_would_create_an_unsolvable_board) {
+      return 1;
+    }
+
+    assert(maybe_unsolvable_proof);
+    int n_steps = 0;
+
+    for (auto &supporting_proof : maybe_unsolvable_proof->supporting_proofs) {
+      n_steps += supporting_proof.nSteps();
+    }
+
+    return n_steps;
   }
 
   bool operator==(const NegativeAssignmentProof &arg) const
@@ -151,6 +233,62 @@ struct NegativeAssignmentProof {
 
   const Assignment assignment;
   const Type type;
+  Optional<UnsolvableProof> maybe_unsolvable_proof;
+};
+}
+
+
+namespace {
+struct CellProofs {
+  CellProofs()
+  : proofs(9)
+  {
+  }
+
+  bool operator==(const CellProofs &arg)
+  {
+    assert(proofs.size()==arg.proofs.size());
+    size_t n = proofs.size();
+
+    for (size_t i=0; i!=n; ++i) {
+      if (proofs[i]!=arg.proofs[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  const Optional<NegativeAssignmentProof> &operator[](Number number) const
+  {
+    return proofs[indexOf(number)];
+  }
+
+  Optional<NegativeAssignmentProof> &operator[](Number number)
+  {
+    return proofs[indexOf(number)];
+  }
+
+  private:
+    vector<Optional<NegativeAssignmentProof>> proofs;
+
+    static size_t indexOf(Number number)
+    {
+      assert(number>='1' && number<='9');
+      return number-'1';
+    }
+};
+}
+
+
+namespace {
+struct ProofStep {
+  enum class Type {
+    number_already_exists_in_row
+  };
+
+  const Type type;
+  const Index index;
 };
 }
 
@@ -167,21 +305,6 @@ struct PositiveAssignmentProof {
   const Assignment assignment;
   const Type type;
   vector<NegativeAssignmentProof> steps;
-};
-}
-
-
-namespace {
-struct UnsolvableProof {
-  enum class Type {
-    no_valid_number_for_cell,
-    no_valid_col_for_number_in_row,
-    no_valid_row_for_number_in_col,
-    no_valid_cell_for_number_in_region
-  };
-
-  const Type type;
-  const vector<NegativeAssignmentProof> supporting_proofs;
 };
 }
 
@@ -265,15 +388,23 @@ static bool
 }
 
 
+static Optional<UnsolvableProof>
+  proveBoardIsUnsolvable(
+    Board &board,
+    const Puzzle &puzzle,
+    int max_proof_steps
+  );
+
+
 static Optional<NegativeAssignmentProof>
   proveAssignmentIsInvalid(
     const Assignment &assignment,
     int max_proof_steps,
-    Board &board
+    Board &board,
+    const Puzzle &puzzle
   )
 {
   if (max_proof_steps==0) {
-    assert(false);
     return Optional<NegativeAssignmentProof>();
   }
 
@@ -307,111 +438,322 @@ static Optional<NegativeAssignmentProof>
       );
   }
 
-#if USE_PROVE_ASSIGNMENT_IS_INVALID2
-  cerr << "cell: " << cell << "\n";
-  cerr << "number: " << number << "\n";
-  assert(false);
-  board[cell] = number;
-  Optional<Proof> maybe_proof = proveBoardIsUnsolvable(board,max_proof_steps);
-  board[cell].setEmpty();
+  if (max_proof_steps>1) {
+    board[cell] = number;
+    Optional<UnsolvableProof> maybe_proof =
+      proveBoardIsUnsolvable(board,puzzle,max_proof_steps);
+    board.setCellEmpty(cell.row,cell.col);
 
-  if (maybe_proof) {
-    assert(false);
-    Proof proof;
-    proof.addNumberMakesBoardInvalid(*maybe_proof):
-    return proof;
+    if (maybe_proof) {
+      return NegativeAssignmentProof(assignment,*maybe_proof);
+    }
   }
 
-  return noProof();
-#else
-  assert(false);
-#endif
+  return {};
 }
 
-#if 0
-static Optional<Proof>
-  hasNoValidAssignments(const vector<Assignments> &,int max_proof_steps)
+static bool
+  hasNoValidAssignments(
+    const Assignments &assignments,
+    const NegativeProofs &negative_proofs,
+    int max_proof_steps
+  )
 {
   int n_remaining_steps = max_proof_steps;
 
-  for (auto &assgnment : assignments) {
-    Optional<Proof> maybe_assignment_proof =
-      proveAssignmentIsInvalid(assignment,n_remaining_steps);
+  for (auto &assignment : assignments) {
+    assert(n_remaining_steps>=0);
 
-    if (!maybe_assignment_proof) {
+    const Optional<NegativeAssignmentProof> &maybe_proof =
+      negative_proofs[assignment.cell][assignment.number];
+
+    if (!maybe_proof) {
       return false;
     }
 
-    proof += *maybe_assignment_proof;
-    n_remaining_steps -= maybe_assignment_proof->nSteps();
+    assert(maybe_proof->nSteps() <= max_proof_steps);
+
+    if (maybe_proof->nSteps() > n_remaining_steps) {
+      // It is going to take more than our given number of steps to
+      // prove this.
+      return false;
+    }
+
+    n_remaining_steps -= maybe_proof->nSteps();
   }
 
-  return proof;
+  return true;
 }
-#endif
 
 
-#if 0
+static vector<NegativeAssignmentProof>
+  negativeAssignmentProofs(
+    const Assignments &assignments,
+    const NegativeProofs &negative_proofs
+  )
+{
+  vector<NegativeAssignmentProof> proofs;
+
+  for (auto &assignment : assignments) {
+    const Optional<NegativeAssignmentProof> &maybe_proof =
+      negative_proofs[assignment.cell][assignment.number];
+
+    assert(maybe_proof);
+    proofs.push_back(*maybe_proof);
+  }
+
+  return proofs;
+}
+
+
 static vector<Assignment> cellAssignments(IndexPair cell)
 {
+  vector<Assignment> assignments;
+
+  forEachNumber([&](Number number){
+    assignments.push_back(Assignment{cell,number});
+  });
+
+  return assignments;
 }
 
 
-static vector<Assignment> rowAssignments(Index row,Number number)
+template <typename Function>
+static void forEachEmptyColumn(const Board &board,Index row,const Function &f)
 {
+  for (Index col : board.columnIndices()) {
+    if (board.cellIsEmpty(row,col)) {
+      f(col);
+    }
+  }
 }
-#endif
 
 
-#if USE_PROVE_BOARD_IS_UNSOLVABLE
+template <typename Function>
+static void forEachEmptyRow(const Board &board,Index col,const Function &f)
+{
+  for (Index row : board.rowIndices()) {
+    if (board.cellIsEmpty(row,col)) {
+      f(col);
+    }
+  }
+}
+
+
+template <typename Function>
+static void
+  forEachEmptyCellInRegion(const Board &board,Index region,const Function &f)
+{
+  for (IndexPair cell : regionCells(region)) {
+    if (board.cellIsEmpty(cell.row,cell.col)) {
+      f(cell.row,cell.col);
+    }
+  }
+}
+
+
+static vector<Assignment>
+  rowAndNumberAssignments(Index row,Number number,const Board &board)
+{
+  vector<Assignment> assignments;
+
+  forEachEmptyColumn(board,row,[&](Index col){
+    assignments.push_back({{row,col}, number});
+  });
+
+  return assignments;
+}
+
+
+static vector<Assignment>
+  colAndNumberAssignments(Index col,Number number,const Board &board)
+{
+  vector<Assignment> assignments;
+
+  forEachEmptyRow(board,col,[&](Index row){
+    assignments.push_back({{row,col}, number});
+  });
+
+  return assignments;
+}
+
+
+static vector<Assignment>
+  regionAndNumberAssignments(Index region,Number number,const Board &board)
+{
+  vector<Assignment> assignments;
+
+  forEachEmptyCellInRegion(board,region,[&](Index row,Index col){
+    assignments.push_back({{row,col}, number});
+  });
+
+  return assignments;
+}
+
+
+static Assignments groupAssignments(Group group,const Board &board)
+{
+  using Type = Group::Type;
+
+  switch (group.type) {
+    case Type::numbers_for_a_cell:
+      return cellAssignments(group.cell());
+    case Type::cols_for_a_row_and_number:
+    {
+      Index row = group.rowAndNumber().row;
+      Number number = group.rowAndNumber().number;
+      return rowAndNumberAssignments(row,number,board);
+    }
+    case Type::rows_for_a_col_and_number:
+    {
+      Index col = group.colAndNumber().col;
+      Number number = group.colAndNumber().number;
+      return colAndNumberAssignments(col,number,board);
+    }
+    case Type::cells_for_a_region_and_number:
+    {
+      Index region = group.regionAndNumber().region;
+      Number number = group.regionAndNumber().number;
+      return regionAndNumberAssignments(region,number,board);
+    }
+  }
+
+  assert(false);
+}
+
+
 static Optional<UnsolvableProof>
-  proveGroupIsUnsolvable(Group group,const NegativeProofs &negative_proofs)
+  proveGroupIsUnsolvable(
+    Group group,
+    const NegativeProofs &negative_proofs,
+    int max_proof_steps,
+    const Board &board
+  )
 {
-  vector<Assignment> assignments = groupAssignments(group);
+  vector<Assignment> assignments = groupAssignments(group,board);
 
-  if (hasNoValidAssignments(assignments)) {
-    assert(false);
+  if (hasNoValidAssignments(assignments,negative_proofs,max_proof_steps)) {
     return
       UnsolvableProof{
         group,
-        assignmentProofs(assignments,negative_proofs)
+        negativeAssignmentProofs(assignments,negative_proofs)
       };
   }
+
+  // We could not prove that this group was unsolvable in the given
+  // number of steps.
+  return {};
 }
-#endif
 
 
-#if 0
-static void forEachGroup()
+static Group cellGroup(IndexPair cell)
 {
-  forEachEmptyCell(board,[&](IndexPair cell){
-    f(cellGroup(cell));
+  return Group::makeCell(cell);
+}
+
+
+static Group rowAndNumberGroup(Index row,Number number)
+{
+  return Group::makeRow(row,number);
+}
+
+
+static Group colAndNumberGroup(Index col,Number number)
+{
+  return Group::makeCol(col,number);
+}
+
+
+static Group regionAndNumberGroup(Index region,Number number)
+{
+  return Group::makeRegion(region,number);
+}
+
+
+template <typename Function>
+static void forEachGroup(const Board &board,const Function &f)
+{
+  forEachEmptyCell(board,[&](Index row,Index col){
+    f(cellGroup(IndexPair{row,col}));
+  });
+
+  for (Index row : board.rowIndices()) {
+    forEachNumber(
+      [&](Number number){
+        f(rowAndNumberGroup(row,number));
+      }
+    );
   }
 
-  forEachRow(
+  for (Index col : board.columnIndices()) {
     forEachNumber(
-      f(rowGroup(row,number))
-    )
-  );
+      [&](Number number){
+        f(colAndNumberGroup(col,number));
+      }
+    );
+  }
 
-  forEachCol(
+  for (Index region : board.regionIndices()) {
     forEachNumber(
-      f(colGroup(col,number));
-    )
-  )
-
-  forEachRegion(
-    forEachNumber(
-      f(regionGroup(region,number));
-    )
-  )
+      [&](Number number){
+        f(regionAndNumberGroup(region,number));
+      }
+    );
+  }
 }
-#endif
 
 
-#if 0
+static Grid<CellProofs>
+  makeNegativeProofs(int max_proof_steps,Board &board,const Puzzle &puzzle)
+{
+  Grid<CellProofs> negative_proofs(CellProofs{});
+
+  forEachEmptyCell(board,[&](Index row,Index col){
+    for (Assignment assignment : cellAssignments({row,col})) {
+      assert(!negative_proofs[row][col][assignment.number]);
+      negative_proofs[row][col][assignment.number] =
+        proveAssignmentIsInvalid(assignment,max_proof_steps,board,puzzle);
+    }
+  });
+
+  return negative_proofs;
+}
+
+
+static bool groupIsSet(const Group &group,const Board &board)
+{
+  using Type = Group::Type;
+
+  switch (group.type) {
+    case Type::numbers_for_a_cell:
+      // Check that no numbers exist in the cell
+      return !board.cellIsEmpty(group.cell().row,group.cell().col);
+    case Type::cols_for_a_row_and_number:
+      {
+        Number number = group.rowAndNumber().number;
+        Index row = group.rowAndNumber().row;
+        return numberExistsInCells(number,rowCells(row),board);
+      }
+    case Type::rows_for_a_col_and_number:
+      {
+        Number number = group.colAndNumber().number;
+        Index col = group.colAndNumber().col;
+        return numberExistsInCells(number,colCells(col),board);
+      }
+    case Type::cells_for_a_region_and_number:
+      {
+        Number number = group.regionAndNumber().number;
+        Number region = group.regionAndNumber().region;
+        return numberExistsInCells(number,regionCells(region),board);
+      }
+  }
+
+  assert(false);
+}
+
+
 static Optional<UnsolvableProof>
-  proveBoardIsUnsolvable(Board &board,const Puzzle &puzzle,int depth)
+  proveBoardIsUnsolvable(Board &board,const Puzzle &puzzle,int max_proof_steps)
 {
   // This should only be called if there are no obvious conflicts.
   assert(puzzle.boardIsValid(board));
@@ -421,24 +763,34 @@ static Optional<UnsolvableProof>
   // no place a number can go in a row, no place a number can go
   // in a column, or no place a number can go in a region.
 
-  if (depth==0) {
+  if (max_proof_steps==0) {
     // No way to prove it if we can't have any evidence.
     assert(false);
     return {};
   }
 
   // First, we need to get our negative proofs for each empty cell.
-  Grid<CellProofs> negative_proofs = makeNegativeProofs():
+  Grid<CellProofs> negative_proofs =
+    makeNegativeProofs(max_proof_steps,board,puzzle);
 
-  forEachGroup([](Group group){
+  vector<Group> empty_groups;
+
+  forEachGroup(board,[&](Group group){
+    if (!groupIsSet(group,board)) {
+      empty_groups.push_back(group);
+    }
+  });
+
+  for (const Group &group : empty_groups) {
     Optional<UnsolvableProof> maybe_proof =
-      proveGroupIsUnsolvable(group,negative_proofs);
+      proveGroupIsUnsolvable(group,negative_proofs,max_proof_steps,board);
     if (maybe_proof) {
       return maybe_proof;
     }
-  }):
+  }
+
+  return {};
 }
-#endif
 
 
 #if 0
@@ -753,11 +1105,13 @@ static void
   )
 {
   Board board(board_state);
+  StandardPuzzle puzzle;
   Optional<NegativeAssignmentProof> maybe_proof =
     proveAssignmentIsInvalid(
       assignment,
       /*max_proof_length*/1,
-      board
+      board,
+      puzzle
     );
   NegativeAssignmentProof
     expected_proof(
@@ -790,10 +1144,66 @@ static void testProveAssignmentIsInvalid()
 }
 
 
-#if USE_PROVE_ASSIGNMENT_IS_INVALID2
+static void testGroupAssignments()
+{
+  {
+    // Test cell group
+    Board board(testBoard1());
+    IndexPair cell{0,2};
+    Assignments assignments = groupAssignments(cellGroup(cell),board);
+    assert(assignments.size()==9);
+    assert(assignments[0].cell==cell);
+    assert(assignments[0].number=='1');
+    assert(assignments[8].number=='9');
+  }
+  {
+    // Test row and number group
+    Board board(testBoard1());
+    Group group = rowAndNumberGroup(0,'3');
+    Assignments assignments = groupAssignments(group,board);
+    assert(assignments.size()==4);
+    Assignments expected_assignments = {
+      {{0,2},'3'},
+      {{0,3},'3'},
+      {{0,5},'3'},
+      {{0,6},'3'},
+    };
+    assert(assignments==expected_assignments);
+  }
+}
+
+
+static void testGroupIsSet()
+{
+  Board board(testBoard1());
+  assert( groupIsSet(cellGroup({0,0}),board));
+  assert(!groupIsSet(cellGroup({0,2}),board));
+  assert( groupIsSet(rowAndNumberGroup(0,'1'),board));
+  assert(!groupIsSet(rowAndNumberGroup(0,'3'),board));
+  assert( groupIsSet(colAndNumberGroup(0,'9'),board));
+  assert(!groupIsSet(colAndNumberGroup(0,'2'),board));
+  assert( groupIsSet(regionAndNumberGroup(0,'9'),board));
+  assert(!groupIsSet(regionAndNumberGroup(0,'3'),board));
+}
+
+
+static void testForEachGroup()
+{
+  Board board(testBoard1());
+  int n_groups = 0;
+
+  forEachGroup(board,[&](const Group &){
+    ++n_groups;
+  });
+
+  assert(n_groups!=0);
+}
+
+
 static void testProveAssignmentIsInvalid2()
 {
   Board board(testBoard1());
+  const StandardPuzzle puzzle;
 
   forEachEmptyCell(board,[&](Index row,Index col){
     forEachNumber([&](Number number){
@@ -801,26 +1211,46 @@ static void testProveAssignmentIsInvalid2()
         proveAssignmentIsInvalid(
           /*assignment*/{{row,col},number},
           /*max_proof_length*/1,
-          board
+          board,
+          puzzle
         );
     });
   });
 
   // Need to find a case where we can't find a negative proof easily.
 }
-#endif
 
 
-#if USE_PROVE_BOARD_IS_UNSOLVABLE
+static void testMakeNegativeProofs()
+{
+  const StandardPuzzle puzzle;
+  { /* if we don't allow any proof steps, then we can't have any proofs */
+    int max_proof_steps = 0;
+    Board board(testBoard1());
+    Grid<CellProofs> negative_proofs =
+      makeNegativeProofs(max_proof_steps,board,puzzle);
+    assert(negative_proofs[0][0]==CellProofs());
+  }
+  { /* if we allow only 1 proof step, then we can only have very simple
+       proofs */
+    int max_proof_steps = 1;
+    Board board(testBoard1());
+    Grid<CellProofs> negative_proofs =
+      makeNegativeProofs(max_proof_steps,board,puzzle);
+    assert(negative_proofs[0][2]['9'].hasValue());
+  }
+}
+
+
 static void testProveBoardIsUnsolvable()
 {
   StandardPuzzle puzzle;
   Board board(testBoard1());
   board[0][2] = '3';
-  Optional<UnsolvableProof> result = proveBoardIsUnsolvable(puzzle,board);
-  assert(false);
+  Optional<UnsolvableProof> result =
+    proveBoardIsUnsolvable(board,puzzle,/*max_proof_steps*/1);
+  assert(!result);
 }
-#endif
 
 
 #if 0
@@ -841,12 +1271,12 @@ int main()
   testRowCells();
   testNumberExistsInCells();
   testProveAssignmentIsInvalid();
-#if USE_PROVE_BOARD_IS_UNSOLVABLE
+  testForEachGroup();
+  testGroupAssignments();
+  testGroupIsSet();
+  testMakeNegativeProofs();
   testProveBoardIsUnsolvable();
-#endif
-#if USE_PROVE_ASSIGNMENT_IS_INVALID2
   testProveAssignmentIsInvalid2();
-#endif
   // testFindAnyPositiveProof();
   // testDeepeningSolver();
 }
