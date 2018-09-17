@@ -11,9 +11,10 @@ struct NegativeAssignmentProof;
 struct UnsolvableProof;
 }
 
+using std::ostream;
 using std::vector;
-using NegativeProofs = Grid<CellProofs>;
 using std::cerr;
+using NegativeProofs = Grid<CellProofs>;
 using Assignments = vector<Assignment>;
 
 
@@ -117,6 +118,11 @@ class Group {
     struct RegionAndNumber {
       Index region;
       Number number;
+
+      bool operator==(const RegionAndNumber &arg) const
+      {
+        return region==arg.region && number==arg.number;
+      }
     };
 
     const Type type;
@@ -143,6 +149,21 @@ class Group {
     {
       assert(type==Type::cells_for_a_region_and_number);
       return member.region_and_number;
+    }
+
+    bool operator==(const Group &arg) const
+    {
+      if (type!=arg.type) return false;
+
+      switch (type) {
+        case Type::numbers_for_a_cell: assert(false);
+        case Type::cols_for_a_row_and_number: assert(false);
+        case Type::rows_for_a_col_and_number: assert(false);
+        case Type::cells_for_a_region_and_number:
+          return member.region_and_number == arg.member.region_and_number;
+      }
+
+      assert(false);
     }
 
   private:
@@ -295,16 +316,8 @@ struct ProofStep {
 
 namespace {
 struct PositiveAssignmentProof {
-  enum class Type {
-    only_valid_number_in_cell,
-    only_valid_col_in_row,
-    only_valid_row_in_col,
-    only_valid_cell_in_region
-  };
-
-  const Assignment assignment;
-  const Type type;
-  vector<NegativeAssignmentProof> steps;
+  const Group group;
+  // vector<NegativeAssignmentProof> steps;
 };
 }
 
@@ -439,10 +452,12 @@ static Optional<NegativeAssignmentProof>
   }
 
   if (max_proof_steps>1) {
+    cerr << "Trying to put number " << number << " in cell " << cell << " using " << max_proof_steps << " steps\n";
     board[cell] = number;
     Optional<UnsolvableProof> maybe_proof =
       proveBoardIsUnsolvable(board,puzzle,max_proof_steps);
     board.setCellEmpty(cell.row,cell.col);
+    cerr << "Done trying\n";
 
     if (maybe_proof) {
       return NegativeAssignmentProof(assignment,*maybe_proof);
@@ -622,6 +637,45 @@ static Assignments groupAssignments(Group group,const Board &board)
 }
 
 
+#if 0
+static ostream& operator<<(ostream& stream,const Group &group)
+{
+  using Type = Group::Type;
+
+  switch (group.type) {
+    case Type::numbers_for_a_cell:
+    {
+      stream << "numbers for cell " << group.cell();
+      break;
+    }
+    case Type::cols_for_a_row_and_number:
+    {
+      Index row = group.rowAndNumber().row;
+      Number number = group.rowAndNumber().number;
+      stream << "cols for number " << number << " on row " << row;
+      break;
+    }
+    case Type::rows_for_a_col_and_number:
+    {
+      Index col = group.colAndNumber().col;
+      Number number = group.colAndNumber().number;
+      stream << "cols for number " << number << " on col " << col;
+      break;
+    }
+    case Type::cells_for_a_region_and_number:
+    {
+      Index region = group.regionAndNumber().region;
+      Number number = group.regionAndNumber().number;
+      stream << "cells for number " << number << " in region " << region;
+      break;
+    }
+  }
+
+  return stream;
+}
+#endif
+
+
 static Optional<UnsolvableProof>
   proveGroupIsUnsolvable(
     Group group,
@@ -630,7 +684,19 @@ static Optional<UnsolvableProof>
     const Board &board
   )
 {
+  // We're trying to prove that there is no possibilities for
+  // this group.  For example, if the group is a cell, then we
+  // want to show that there are no numbers that can go in that cell.
+  // If the group is a number for a row, we need to show that there
+  // are no places that the number can go.  That means we are going
+  // to have one proof for each possible assignment.
   vector<Assignment> assignments = groupAssignments(group,board);
+
+  if (assignments.size() > static_cast<size_t>(max_proof_steps)) {
+    // If there are more possible assignments than we have proof steps, then we
+    // know we can't prove it.
+    return {};
+  }
 
   if (hasNoValidAssignments(assignments,negative_proofs,max_proof_steps)) {
     return
@@ -773,17 +839,18 @@ static Optional<UnsolvableProof>
   Grid<CellProofs> negative_proofs =
     makeNegativeProofs(max_proof_steps,board,puzzle);
 
-  vector<Group> empty_groups;
+  vector<Group> unset_groups;
 
   forEachGroup(board,[&](Group group){
     if (!groupIsSet(group,board)) {
-      empty_groups.push_back(group);
+      unset_groups.push_back(group);
     }
   });
 
-  for (const Group &group : empty_groups) {
+  for (const Group &group : unset_groups) {
     Optional<UnsolvableProof> maybe_proof =
       proveGroupIsUnsolvable(group,negative_proofs,max_proof_steps,board);
+
     if (maybe_proof) {
       return maybe_proof;
     }
@@ -820,37 +887,19 @@ static bool // return true if we can prove it, return false if not.
 #endif
 
 
-#if 0
-static bool findGroupPositiveProof(group,proofs)
+#if 1
+static Optional<PositiveAssignmentProof>
+  findGroupPositiveProof(const Group &group,const Board &board)
 {
-  // See if a group has only one unproven member
-  // for each member in group {
-  //   if !proofs[member] {
-  //     if (unproven_member) {
-  //       // Multiple unproven members
-  //       return false
-  //     }
-  //     unproven_member = member
-  //   }
-  // }
-  // if (unproven_member) {
-  //   // There was only a single unproven member
-  //   board[unproven_member.cell] = unproven_member.number
-  //   proof = sum{member in group}(proofs[member])
-  //   return proof
-  // }
+  Assignments assignments = groupAssignments(group,board);
+
+  if (assignments.size()==1) {
+    return PositiveAssignmentProof{group};
+  }
+
+  return {};
 }
 #endif
-
-
-namespace {
-struct MaybeProvenAssignment {
-  const bool has_value;
-  const IndexPair cell;
-  const Number number;
-  const Proof proof;
-};
-}
 
 
 #if 0
@@ -860,24 +909,39 @@ static CellProofs noCellProofs()
 }
 #endif
 
-// Need a function which will give us all the negative proofs
 
-#if 0
-static MaybeProvenAssignment
-  findAnyPositiveProof(Board &board,int /*max_proof_length*/)
+static vector<Group> groupsOf(const Board &board)
 {
-  // We try to make some forward progress, finding a proof that a certain
-  // number must go in a certain cell.
+  vector<Group> result;
 
-  // Find negative proofs for each cell and number
-
-  Grid<CellProofs> proofs(noCellProofs());
-
-  forEachEmptyCell(board,[&](Index row,Index col){
-    forEachNumber([&](Number number){
-      proofs[{row,col}][number] = proveAssignmentIsInvalid(board,row,col,number);
-    });
+  forEachGroup(board,[&](Group group){
+    result.push_back(group);
   });
+
+  return result;
+}
+
+
+static Optional<PositiveAssignmentProof>
+  findAnyPositiveProof(Board &board,int max_proof_length)
+{
+  assert(max_proof_length>0);
+  vector<Group> groups = groupsOf(board);
+
+  for (const Group &group : groups) {
+    if (!groupIsSet(group,board)) {
+      Optional<PositiveAssignmentProof> maybe_proof =
+        findGroupPositiveProof(group,board);
+
+      if (maybe_proof) {
+        return maybe_proof;
+      }
+    }
+  }
+
+  if (max_proof_length==1) {
+    // There's no steps available to
+  }
 
   assert(false);
   // for each cell {
@@ -931,7 +995,6 @@ static MaybeProvenAssignment
   //   }
   // }
 }
-#endif
 
 
 #if 0
@@ -1049,19 +1112,6 @@ static void
   // Increasing the depth limit by 1 each time probably won't be efficient
   // enough, but we can try doubling it.  We won't get a minimal proof,
   // but it should then be within a factor of 2 of minimal (maybe?).
-}
-#endif
-
-
-#if 0
-static void testFindAnyPositiveProof()
-{
-  Board board(testBoard1());
-  // We should not be able to find a proof in one step.
-  MaybeProvenAssignment maybe_assignment =
-    findAnyPositiveProof(board,/*max_proof_length*/1);
-
-  assert(!maybe_assignment.has_value);
 }
 #endif
 
@@ -1221,6 +1271,30 @@ static void testProveAssignmentIsInvalid2()
 }
 
 
+#if 0
+static void testProveAssignmentIsInvalid3()
+{
+  StandardPuzzle puzzle;
+  Board board(testBoard1());
+  Index row = 0;
+  Index col = 2;
+  Number number = '3';
+  int max_proof_length = 2;
+  Assignment assignment = {{row,col},number};
+
+  cerr << "---\n";
+  Optional<NegativeAssignmentProof> maybe_proof =
+    proveAssignmentIsInvalid(assignment,max_proof_length,board,puzzle);
+  cerr << "---\n";
+
+  if (!maybe_proof) {
+    cerr << "Couldn't prove number " <<
+      number << " can't go in {" << row << "," << col << "}\n";
+  }
+}
+#endif
+
+
 static void testMakeNegativeProofs()
 {
   const StandardPuzzle puzzle;
@@ -1253,6 +1327,41 @@ static void testProveBoardIsUnsolvable()
 }
 
 
+#if 1
+static void testFindGroupPositiveProof()
+{
+  Board board(testBoard1());
+  Optional<PositiveAssignmentProof> maybe_proof =
+    findGroupPositiveProof(regionAndNumberGroup(4,'4'),board);
+  assert(maybe_proof);
+}
+#endif
+
+
+static void testFindAnyPositiveProof()
+{
+  Board board(testBoard1());
+  Optional<PositiveAssignmentProof> maybe_proof =
+    findAnyPositiveProof(board,/*max_proof_steps*/1);
+  assert(maybe_proof);
+  assert(maybe_proof->group==regionAndNumberGroup(4,'4'));
+}
+
+
+#if 0
+static void testProveBoardIsUnsolvable2()
+{
+  StandardPuzzle puzzle;
+  Board board(testBoard1());
+  board[0][2] = '3';
+  cerr << "---\n";
+  Optional<UnsolvableProof> result =
+    proveBoardIsUnsolvable(board,puzzle,/*max_proof_steps*/2);
+  assert(!result);
+}
+#endif
+
+
 #if 0
 static void testDeepeningSolver()
 {
@@ -1276,7 +1385,11 @@ int main()
   testGroupIsSet();
   testMakeNegativeProofs();
   testProveBoardIsUnsolvable();
+  testFindGroupPositiveProof();
+  testFindAnyPositiveProof();
+  // testProveBoardIsUnsolvable2();
   testProveAssignmentIsInvalid2();
+  // testProveAssignmentIsInvalid3();
   // testFindAnyPositiveProof();
   // testDeepeningSolver();
 }

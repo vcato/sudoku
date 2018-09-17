@@ -1,2 +1,2 @@
-Made some progress on the new solver.  It can do simple proofs that a
-an assignment isn't valid.  Need to try harder cases.
+Can now find a simple positive proof.  Need to incorporate this into
+the solver and see where it fails with test board 1.
