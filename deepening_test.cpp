@@ -401,11 +401,21 @@ static bool
 }
 
 
+static void indent(ostream &stream,int level)
+{
+  for (int i=0; i!=level; ++i) {
+    stream << "  ";
+  }
+}
+
+
 static Optional<UnsolvableProof>
   proveBoardIsUnsolvable(
     Board &board,
     const Puzzle &puzzle,
-    int max_proof_steps
+    int max_proof_steps,
+    int recursion_level,
+    bool debug
   );
 
 
@@ -414,7 +424,9 @@ static Optional<NegativeAssignmentProof>
     const Assignment &assignment,
     int max_proof_steps,
     Board &board,
-    const Puzzle &puzzle
+    const Puzzle &puzzle,
+    int recursion_level,
+    bool debug
   )
 {
   if (max_proof_steps==0) {
@@ -428,6 +440,10 @@ static Optional<NegativeAssignmentProof>
   Number number = assignment.number;
 
   if (numberExistsInCells(number,rowCells(row),board)) {
+    if (debug) {
+      indent(cerr,recursion_level);
+      cerr << "Number already exists in row\n";
+    }
     return
       NegativeAssignmentProof(
         assignment,
@@ -436,6 +452,10 @@ static Optional<NegativeAssignmentProof>
   }
 
   if (numberExistsInCells(number,colCells(col),board)) {
+    if (debug) {
+      indent(cerr,recursion_level);
+      cerr << "Number already exists in column\n";
+    }
     return
       NegativeAssignmentProof(
         assignment,
@@ -444,6 +464,10 @@ static Optional<NegativeAssignmentProof>
   }
 
   if (numberExistsInCells(number,regionCells(regionOf(cell)),board)) {
+    if (debug) {
+      indent(cerr,recursion_level);
+      cerr << "Number already exists in region\n";
+    }
     return
       NegativeAssignmentProof(
         assignment,
@@ -452,12 +476,30 @@ static Optional<NegativeAssignmentProof>
   }
 
   if (max_proof_steps>1) {
-    cerr << "Trying to put number " << number << " in cell " << cell << " using " << max_proof_steps << " steps\n";
+    if (debug) {
+      indent(cerr,recursion_level);
+      cerr << "Trying " << number << " in cell " << cell << " using " << max_proof_steps << " steps\n";
+    }
+
     board[cell] = number;
     Optional<UnsolvableProof> maybe_proof =
-      proveBoardIsUnsolvable(board,puzzle,max_proof_steps);
+      proveBoardIsUnsolvable(
+        board,puzzle,max_proof_steps-1,recursion_level + 1,debug
+      );
     board.setCellEmpty(cell.row,cell.col);
-    cerr << "Done trying\n";
+
+    if (debug) {
+      indent(cerr,recursion_level);
+
+      if (maybe_proof) {
+        cerr << "Succeeded in negative proof\n";
+      }
+      else {
+        cerr << "Failed negative proof\n";
+      }
+
+      cerr << "\n";
+    }
 
     if (maybe_proof) {
       return NegativeAssignmentProof(assignment,*maybe_proof);
@@ -466,6 +508,7 @@ static Optional<NegativeAssignmentProof>
 
   return {};
 }
+
 
 static bool
   hasNoValidAssignments(
@@ -770,15 +813,35 @@ static void forEachGroup(const Board &board,const Function &f)
 
 
 static Grid<CellProofs>
-  makeNegativeProofs(int max_proof_steps,Board &board,const Puzzle &puzzle)
+  makeNegativeProofs(
+    int max_proof_steps,
+    Board &board,
+    const Puzzle &puzzle,
+    int recursion_level,
+    bool debug
+  )
 {
   Grid<CellProofs> negative_proofs(CellProofs{});
 
   forEachEmptyCell(board,[&](Index row,Index col){
     for (Assignment assignment : cellAssignments({row,col})) {
       assert(!negative_proofs[row][col][assignment.number]);
+
+      if (debug) {
+        indent(cerr,recursion_level);
+        cerr << "Trying to prove you cannot put number " <<
+          assignment.number << " in cell " << assignment.cell << "\n";
+      }
+
       negative_proofs[row][col][assignment.number] =
-        proveAssignmentIsInvalid(assignment,max_proof_steps,board,puzzle);
+        proveAssignmentIsInvalid(
+          assignment,
+          max_proof_steps,
+          board,
+          puzzle,
+          recursion_level,
+          debug
+        );
     }
   });
 
@@ -819,9 +882,15 @@ static bool groupIsSet(const Group &group,const Board &board)
 
 
 static Optional<UnsolvableProof>
-  proveBoardIsUnsolvable(Board &board,const Puzzle &puzzle,int max_proof_steps)
+  proveBoardIsUnsolvable(
+    Board &board,
+    const Puzzle &puzzle,
+    int max_proof_steps,
+    int recursion_level,
+    bool debug
+  )
 {
-  // This should only be called if there are no obvious conflicts.
+  // This should only be called if there are no immediate conflicts.
   assert(puzzle.boardIsValid(board));
 
   // To prove that a board is unsolvable, we have to show that
@@ -837,7 +906,7 @@ static Optional<UnsolvableProof>
 
   // First, we need to get our negative proofs for each empty cell.
   Grid<CellProofs> negative_proofs =
-    makeNegativeProofs(max_proof_steps,board,puzzle);
+    makeNegativeProofs(max_proof_steps,board,puzzle,recursion_level,debug);
 
   vector<Group> unset_groups;
 
@@ -1161,7 +1230,9 @@ static void
       assignment,
       /*max_proof_length*/1,
       board,
-      puzzle
+      puzzle,
+      /*recursion_level*/0,
+      /*debug*/false
     );
   NegativeAssignmentProof
     expected_proof(
@@ -1262,7 +1333,9 @@ static void testProveAssignmentIsInvalid2()
           /*assignment*/{{row,col},number},
           /*max_proof_length*/1,
           board,
-          puzzle
+          puzzle,
+          /*recursion_level*/0,
+          /*debug*/false
         );
     });
   });
@@ -1302,7 +1375,13 @@ static void testMakeNegativeProofs()
     int max_proof_steps = 0;
     Board board(testBoard1());
     Grid<CellProofs> negative_proofs =
-      makeNegativeProofs(max_proof_steps,board,puzzle);
+      makeNegativeProofs(
+        max_proof_steps,
+        board,
+        puzzle,
+        /*recursion_level*/0,
+        /*debug*/false
+      );
     assert(negative_proofs[0][0]==CellProofs());
   }
   { /* if we allow only 1 proof step, then we can only have very simple
@@ -1310,7 +1389,13 @@ static void testMakeNegativeProofs()
     int max_proof_steps = 1;
     Board board(testBoard1());
     Grid<CellProofs> negative_proofs =
-      makeNegativeProofs(max_proof_steps,board,puzzle);
+      makeNegativeProofs(
+        max_proof_steps,
+        board,
+        puzzle,
+        /*recursion_level*/0,
+        /*debug*/false
+      );
     assert(negative_proofs[0][2]['9'].hasValue());
   }
 }
@@ -1322,7 +1407,13 @@ static void testProveBoardIsUnsolvable()
   Board board(testBoard1());
   board[0][2] = '3';
   Optional<UnsolvableProof> result =
-    proveBoardIsUnsolvable(board,puzzle,/*max_proof_steps*/1);
+    proveBoardIsUnsolvable(
+      board,
+      puzzle,
+      /*max_proof_steps*/1,
+      /*recursion_level*/0,
+      /*debug*/false
+    );
   assert(!result);
 }
 
@@ -1356,7 +1447,13 @@ static void testProveBoardIsUnsolvable2()
   board[0][2] = '3';
   cerr << "---\n";
   Optional<UnsolvableProof> result =
-    proveBoardIsUnsolvable(board,puzzle,/*max_proof_steps*/2);
+    proveBoardIsUnsolvable(
+      board,
+      puzzle,
+      /*max_proof_steps*/2,
+      /*recursion_level*/0,
+      /*debug*/true
+    );
   assert(!result);
 }
 #endif

@@ -1,2 +1,11 @@
 Can now find a simple positive proof.  Need to incorporate this into
 the solver and see where it fails with test board 1.
+
+If we are trying to prove that a board is invalid, we first prove which
+numbers cannot go in each cell.  If we see that no number can go in a cell,
+then we've proven it.  If we see that only one number can go into a cell,
+we should go ahead and put that number there.
+
+So we can spend a certain number of proof points to prove numbers can't
+go in certain cells.  Then fill any groups that have a single solution
+or return our proof if a group has no solution.
