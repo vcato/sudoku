@@ -27,6 +27,11 @@ struct Assignment {
   {
     return cell==arg.cell && number==arg.number;
   }
+
+  bool operator!=(const Assignment &arg) const
+  {
+    return !operator==(arg);
+  }
 };
 }
 
@@ -510,6 +515,7 @@ static Optional<NegativeAssignmentProof>
 }
 
 
+#if 0
 static bool
   hasNoValidAssignments(
     const Assignments &assignments,
@@ -542,6 +548,7 @@ static bool
 
   return true;
 }
+#endif
 
 
 static vector<NegativeAssignmentProof>
@@ -592,7 +599,7 @@ static void forEachEmptyRow(const Board &board,Index col,const Function &f)
 {
   for (Index row : board.rowIndices()) {
     if (board.cellIsEmpty(row,col)) {
-      f(col);
+      f(row);
     }
   }
 }
@@ -680,7 +687,7 @@ static Assignments groupAssignments(Group group,const Board &board)
 }
 
 
-#if 0
+#if 1
 static ostream& operator<<(ostream& stream,const Group &group)
 {
   using Type = Group::Type;
@@ -724,7 +731,8 @@ static Optional<UnsolvableProof>
     Group group,
     const NegativeProofs &negative_proofs,
     int max_proof_steps,
-    const Board &board
+    const Board &board,
+    bool debug
   )
 {
   // We're trying to prove that there is no possibilities for
@@ -734,13 +742,40 @@ static Optional<UnsolvableProof>
   // are no places that the number can go.  That means we are going
   // to have one proof for each possible assignment.
   vector<Assignment> assignments = groupAssignments(group,board);
+  int n_possible_assignments = 0;
 
-  if (assignments.size() > static_cast<size_t>(max_proof_steps)) {
+  if (assignments.size()>=2) {
+    assert(assignments[0] != assignments[1]);
+  }
+
+  for (auto &assignment : assignments) {
+    if (!negative_proofs[assignment.cell][assignment.number]) {
+      if (debug) {
+        cerr << "Can't put number " << assignment.number <<
+          " in cell " << assignment.cell << "\n";
+      }
+      ++n_possible_assignments;
+    }
+    else {
+      if (debug) {
+        cerr << "Can put number " << assignment.number <<
+          " in cell " << assignment.cell << "\n";
+      }
+    }
+  }
+
+  if (debug) {
+    cerr << "Group " << group << " has " << n_possible_assignments <<
+      " possible assignments.\n";
+  }
+
+  if (n_possible_assignments > max_proof_steps) {
     // If there are more possible assignments than we have proof steps, then we
     // know we can't prove it.
     return {};
   }
 
+#if 0
   if (hasNoValidAssignments(assignments,negative_proofs,max_proof_steps)) {
     return
       UnsolvableProof{
@@ -748,6 +783,14 @@ static Optional<UnsolvableProof>
         negativeAssignmentProofs(assignments,negative_proofs)
       };
   }
+#else
+  if (n_possible_assignments==0) {
+    return
+      UnsolvableProof{
+        group,negativeAssignmentProofs(assignments,negative_proofs)
+      };
+  }
+#endif
 
   // We could not prove that this group was unsolvable in the given
   // number of steps.
@@ -812,6 +855,42 @@ static void forEachGroup(const Board &board,const Function &f)
 }
 
 
+static void
+  extendNegativeProofs(
+    Grid<CellProofs> &negative_proofs,
+    int max_proof_steps,
+    Board &board,
+    const Puzzle &puzzle,
+    int recursion_level,
+    bool debug
+  )
+{
+  forEachEmptyCell(board,[&](Index row,Index col){
+    for (Assignment assignment : cellAssignments({row,col})) {
+      assert(!negative_proofs[row][col][assignment.number]);
+
+      if (debug) {
+        indent(cerr,recursion_level);
+        cerr << "Trying to prove you cannot put number " <<
+          assignment.number << " in cell " << assignment.cell << "\n";
+      }
+
+      if (!negative_proofs[row][col][assignment.number]) {
+        negative_proofs[row][col][assignment.number] =
+          proveAssignmentIsInvalid(
+            assignment,
+            max_proof_steps,
+            board,
+            puzzle,
+            recursion_level,
+            debug
+          );
+      }
+    }
+  });
+}
+
+
 static Grid<CellProofs>
   makeNegativeProofs(
     int max_proof_steps,
@@ -823,27 +902,14 @@ static Grid<CellProofs>
 {
   Grid<CellProofs> negative_proofs(CellProofs{});
 
-  forEachEmptyCell(board,[&](Index row,Index col){
-    for (Assignment assignment : cellAssignments({row,col})) {
-      assert(!negative_proofs[row][col][assignment.number]);
-
-      if (debug) {
-        indent(cerr,recursion_level);
-        cerr << "Trying to prove you cannot put number " <<
-          assignment.number << " in cell " << assignment.cell << "\n";
-      }
-
-      negative_proofs[row][col][assignment.number] =
-        proveAssignmentIsInvalid(
-          assignment,
-          max_proof_steps,
-          board,
-          puzzle,
-          recursion_level,
-          debug
-        );
-    }
-  });
+  extendNegativeProofs(
+    negative_proofs,
+    max_proof_steps,
+    board,
+    puzzle,
+    recursion_level,
+    debug
+  );
 
   return negative_proofs;
 }
@@ -905,8 +971,16 @@ static Optional<UnsolvableProof>
   }
 
   // First, we need to get our negative proofs for each empty cell.
-  Grid<CellProofs> negative_proofs =
-    makeNegativeProofs(max_proof_steps,board,puzzle,recursion_level,debug);
+  Grid<CellProofs> negative_proofs(CellProofs{});
+
+  extendNegativeProofs(
+    negative_proofs,
+    /*max_proof_steps*/1,
+    board,
+    puzzle,
+    recursion_level,
+    debug
+  );
 
   vector<Group> unset_groups;
 
@@ -918,7 +992,9 @@ static Optional<UnsolvableProof>
 
   for (const Group &group : unset_groups) {
     Optional<UnsolvableProof> maybe_proof =
-      proveGroupIsUnsolvable(group,negative_proofs,max_proof_steps,board);
+      proveGroupIsUnsolvable(
+        group,negative_proofs,max_proof_steps,board,debug
+      );
 
     if (maybe_proof) {
       return maybe_proof;
@@ -1185,6 +1261,21 @@ static void
 #endif
 
 
+template <typename T>
+static bool allAreUnique(const vector<T> &v)
+{
+  size_t n = v.size();
+
+  for (size_t i=0; i!=n; ++i) {
+    for (size_t j=i+1; j!=n; ++j) {
+      if (v[i]==v[j]) return false;
+    }
+  }
+
+  return true;
+}
+
+
 static void testOptional()
 {
   {
@@ -1290,6 +1381,13 @@ static void testGroupAssignments()
       {{0,6},'3'},
     };
     assert(assignments==expected_assignments);
+  }
+  {
+    Board board(testBoard1());
+
+    forEachGroup(board,[&](const Group &group){
+      assert(allAreUnique(groupAssignments(group,board)));
+    });
   }
 }
 
@@ -1484,8 +1582,8 @@ int main()
   testProveBoardIsUnsolvable();
   testFindGroupPositiveProof();
   testFindAnyPositiveProof();
-  // testProveBoardIsUnsolvable2();
   testProveAssignmentIsInvalid2();
+  // testProveBoardIsUnsolvable2();
   // testProveAssignmentIsInvalid3();
   // testFindAnyPositiveProof();
   // testDeepeningSolver();
