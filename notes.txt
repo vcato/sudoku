@@ -10,8 +10,6 @@ So we can spend a certain number of proof points to prove numbers can't
 go in certain cells.  Then fill any groups that have a single solution
 or return our proof if a group has no solution.
 
-When proving a board is invalid, it should take the current set of
-proofs as a parameter, and try to add to them.  So, we'll start
-with no proofs, and then prove as much as we can with a single step.
-If this doesn't lead to any contradictions or positive proofs, then
-we go deeper.
+proveBoardIsUnsolvable() should keep going as long as it can make
+positive proofs.  We should only consider the depth to increase if
+there is a branch.
