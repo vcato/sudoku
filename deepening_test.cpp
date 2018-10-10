@@ -1537,24 +1537,21 @@ static void testFindAnyPositiveProof()
 }
 
 
-#if 0
 static void testProveBoardIsUnsolvable2()
 {
   StandardPuzzle puzzle;
   Board board(testBoard1());
   board[0][2] = '3';
-  cerr << "---\n";
   Optional<UnsolvableProof> result =
     proveBoardIsUnsolvable(
       board,
       puzzle,
       /*max_proof_steps*/2,
       /*recursion_level*/0,
-      /*debug*/true
+      /*debug*/false
     );
   assert(!result);
 }
-#endif
 
 
 #if 0
@@ -1583,7 +1580,7 @@ int main()
   testFindGroupPositiveProof();
   testFindAnyPositiveProof();
   testProveAssignmentIsInvalid2();
-  // testProveBoardIsUnsolvable2();
+  testProveBoardIsUnsolvable2();
   // testProveAssignmentIsInvalid3();
   // testFindAnyPositiveProof();
   // testDeepeningSolver();
