@@ -13,3 +13,14 @@ or return our proof if a group has no solution.
 proveBoardIsUnsolvable() should keep going as long as it can make
 positive proofs.  We should only consider the depth to increase if
 there is a branch.
+
+I think we need findAnyUnsolvableGroupUsingNegativeProofs()
+
+Our basic approach to proving that a board is unsolvable:
+  // loop:
+  //   make negative proofs
+  //   find any unsolvable group using negative proofs
+  //     if found, return proof
+  //   find any group with a unique solution using negative proofs
+  //     if not found, return no proof
+  //   fill the unique solution
